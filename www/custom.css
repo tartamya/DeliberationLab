@@ -1,0 +1,39 @@
+/* Deliberation Lab -- light custom styling layered over the bslib flatly theme */
+
+.turn-card {
+  border-left: 3px solid #2C5F8A;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: #F5F7FA;
+  border-radius: 4px;
+}
+.turn-card .turn-head { font-weight: 600; color: #2C5F8A; }
+.turn-card .turn-body { white-space: pre-wrap; margin-top: 4px; }
+.turn-card.turn-error { border-left-color: #C0392B; background: #FDEDEC; }
+
+.conf-badge {
+  display: inline-block; font-size: 85%; padding: 1px 8px; border-radius: 10px;
+  background: #EAF0F6; color: #2C5F8A; margin-left: 6px;
+}
+
+.phase-tag {
+  display: inline-block; font-size: 75%; text-transform: uppercase; letter-spacing: .04em;
+  color: #7A8AA0; margin-left: 6px;
+}
+
+.status-New   { color: #1E8449; font-weight: 600; }
+.status-Alive { color: #2C5F8A; }
+.status-Dead  { color: #99A3B0; }
+pre.preview-box {
+  background: #1E2A38; color: #E6EDF3; padding: 12px; border-radius: 6px;
+  white-space: pre-wrap; max-height: 480px; overflow: auto;
+}
+
+/* Run log (Debate Setup tab) -- scrollable diagnostics box */
+.run-log {
+  max-height: 320px; overflow-y: auto; border: 1px solid #DFE1E6; border-radius: 6px;
+  background: #FBFCFD; padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 85%; line-height: 1.5;
+}
+.run-log-line { white-space: pre-wrap; word-break: break-word; padding: 1px 0; border-bottom: 1px solid #F0F2F4; }
+.run-log-time { color: #98A2B3; }

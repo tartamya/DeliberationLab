@@ -1,0 +1,13 @@
+{
+  "_comment": "Synthesis output formats. `kind`='local' is assembled in R without an LLM call (e.g. raw transcript, JSON); kind='llm' is produced by the synthesis engine using `prompt` as the instruction over the full transcript. Add a format by adding an object here.",
+  "output_formats": [
+    { "name": "Transcript", "kind": "local", "extension": "txt", "prompt": "" },
+    { "name": "JSON", "kind": "local", "extension": "json", "prompt": "" },
+    { "name": "Executive Summary", "kind": "llm", "extension": "md", "prompt": "Write a crisp one-page EXECUTIVE SUMMARY of the deliberation: the question, the bottom-line answer, 3-5 key supporting points, the main dissent, and the confidence level." },
+    { "name": "Academic Paper", "kind": "llm", "extension": "md", "prompt": "Write the deliberation up as a short ACADEMIC PAPER with sections: Abstract, Background, Arguments Considered, Analysis, Limitations, Conclusion, Open Questions." },
+    { "name": "Policy Brief", "kind": "llm", "extension": "md", "prompt": "Write a POLICY BRIEF: Issue, Background, Options with tradeoffs, Recommendation, Risks, and Implementation steps. Keep it decision-oriented." },
+    { "name": "White Paper", "kind": "llm", "extension": "md", "prompt": "Write a WHITE PAPER: Problem statement, Proposed approach, Evidence and reasoning, Alternatives considered, Risks and mitigations, Conclusion." },
+    { "name": "Teaching Notes", "kind": "llm", "extension": "md", "prompt": "Write TEACHING NOTES for an instructor: learning objectives, the core concepts as explained in the debate, common misconceptions surfaced, and 3 discussion questions." },
+    { "name": "Slide Outline", "kind": "llm", "extension": "md", "prompt": "Write a SLIDE OUTLINE (title + 3-6 bullets per slide) covering the question, the arguments, the synthesis, and the recommendation. Aim for 8-12 slides." }
+  ]
+}

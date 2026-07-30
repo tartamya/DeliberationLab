@@ -1,0 +1,146 @@
+{
+  "_comment": "Provider registry. Each entry is data only -- no R code. The `api_type` field selects which generic caller in R/llm_api.R handles it: 'openai_chat' (OpenAI, Grok, Sarvam, LM Studio, Ollama, and ANY OpenAI-compatible endpoint), 'anthropic' (Claude), or 'gemini' (Google). To add an OpenAI-compatible provider you ONLY edit this file. Adding a genuinely new API shape needs a new caller + api_type in R/llm_api.R. OPTIONAL `max_tokens`: a per-provider OUTPUT-token CEILING -- the app clamps EVERY request (agent turns AND meta-calls) down to it. Remove the field to use only the sidebar slider. The values below are conservative, non-restrictive defaults (>= the sidebar's 4000 ceiling); set each to your model's real documented output limit. NOTE: if a provider is used for Planner/Moderator/Consensus, keep its ceiling >= 3500, since those structured-JSON calls request up to that much.",
+  "providers": [
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "api_type": "openai_chat",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "default_model": "gpt-5.5",
+      "models": [
+        "gpt-5.5",
+        "gpt-4.1",
+        "gpt-4o",
+        "gpt-4o-mini"
+      ],
+      "max_tokens": 16384,
+      "thinking": true,
+      "needs_key": true,
+      "key_name": "openai",
+      "key_env": "OPENAI_API_KEY",
+      "reasoning_effort_levels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "claude",
+      "label": "Claude (Anthropic)",
+      "api_type": "anthropic",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "default_model": "claude-sonnet-5",
+      "models": [
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-haiku-4-5-20251001"
+      ],
+      "max_tokens": 8192,
+      "thinking": false,
+      "needs_key": true,
+      "key_name": "claude",
+      "key_env": "ANTHROPIC_API_KEY",
+      "reasoning_effort_levels": []
+    },
+    {
+      "id": "grok",
+      "label": "Grok (xAI)",
+      "api_type": "openai_chat",
+      "endpoint": "https://api.x.ai/v1/chat/completions",
+      "default_model": "grok-4.5",
+      "models": [
+        "grok-4.5",
+        "grok-3",
+        "grok-2-latest"
+      ],
+      "max_tokens": 8192,
+      "thinking": true,
+      "needs_key": true,
+      "key_name": "grok",
+      "key_env": "GROK_API_KEY",
+      "reasoning_effort_levels": [
+        "low",
+        "high"
+      ]
+    },
+    {
+      "id": "sarvam",
+      "label": "Sarvam AI",
+      "api_type": "openai_chat",
+      "endpoint": "https://api.sarvam.ai/v1/chat/completions",
+      "default_model": "sarvam-105b",
+      "models": [
+        "sarvam-30b",
+        "sarvam-105b"
+      ],
+      "max_tokens": 8192,
+      "thinking": true,
+      "needs_key": true,
+      "key_name": "sarvam",
+      "key_env": "SARVAM_API_KEY",
+      "reasoning_effort_levels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "gemini",
+      "label": "Google Gemini",
+      "api_type": "gemini",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models",
+      "default_model": "gemini-2.0-flash",
+      "models": [
+        "gemini-2.0-flash",
+        "gemini-1.5-pro"
+      ],
+      "max_tokens": 8192,
+      "thinking": false,
+      "needs_key": true,
+      "key_name": "gemini",
+      "key_env": "GEMINI_API_KEY",
+      "reasoning_effort_levels": []
+    },
+    {
+      "id": "celeris",
+      "label": "Celeris",
+      "api_type": "openai_chat",
+      "endpoint": "https://inference.celeris.ai/celeris-1/v1/chat/completions",
+      "_note": "Base URL is https://inference.celeris.ai/celeris-1/v1 ; the OpenAI-compatible chat route appends /chat/completions. Key `celeris` is in config/secrets.R (or set env var CELERIS_API_KEY).",
+      "default_model": "celeris-1",
+      "models": [
+        "celeris-1"
+      ],
+      "max_tokens": 8192,
+      "context_window": 8192,
+      "token_multiple": 256,
+      "thinking": true,
+      "needs_key": true,
+      "key_name": "celeris",
+      "key_env": "CELERIS_API_KEY",
+      "reasoning_effort_levels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "local",
+      "label": "Local / OpenAI-compatible",
+      "api_type": "openai_chat",
+      "endpoint": "http://localhost:11434/v1/chat/completions",
+      "default_model": "llama3.1",
+      "models": [
+        "llama3.1",
+        "qwen2.5"
+      ],
+      "max_tokens": 8192,
+      "thinking": false,
+      "needs_key": false,
+      "key_name": "local",
+      "key_env": "",
+      "reasoning_effort_levels": []
+    }
+  ]
+}

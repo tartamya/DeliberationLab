@@ -1,0 +1,19 @@
+{
+  "_comment": "Evidence preferences an agent may favor. Surfaced in the Agent Factory and injected into the persona so agents cite the kinds of evidence they trust.",
+  "evidence_types": [
+    { "name": "RCTs", "description": "Randomized controlled trials." },
+    { "name": "Meta-analysis", "description": "Pooled quantitative synthesis of many studies." },
+    { "name": "Systematic Reviews", "description": "Structured, comprehensive literature reviews." },
+    { "name": "Observational Studies", "description": "Cohort, case-control, cross-sectional data." },
+    { "name": "Mechanistic Research", "description": "Causal mechanism and pathway evidence." },
+    { "name": "Historical Evidence", "description": "Precedent and long-run records." },
+    { "name": "Economic Models", "description": "Formal economic and quantitative models." },
+    { "name": "Expert Consensus", "description": "Positions of recognized authorities." },
+    { "name": "Patient / User Experience", "description": "First-person lived experience." },
+    { "name": "Case Reports", "description": "Individual documented cases." },
+    { "name": "Mathematical Proof", "description": "Formal deductive proof." },
+    { "name": "Simulation", "description": "Computational simulation results." },
+    { "name": "Real-world Data", "description": "Field, registry, and telemetry data." },
+    { "name": "Government Reports", "description": "Official statistics and agency reports." }
+  ]
+}

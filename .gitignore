@@ -1,0 +1,14 @@
+# Secrets -- never commit real API keys
+config/secrets.R
+
+# Saved deliberation sessions (may be large / private)
+sessions/
+
+# R artifacts
+.Rproj.user/
+.Rhistory
+.RData
+.RDataTmp
+.Ruserdata
+Rplots.pdf
+*.rds

@@ -1,0 +1,16 @@
+{
+  "_comment": "Debate objectives. The chosen objective is injected into every agent turn and into the synthesis engine so the whole deliberation is oriented toward the same goal.",
+  "objectives": [
+    { "name": "Truth Seeking", "description": "Converge on what is most likely true.", "prompt_fragment": "The shared objective is to converge on what is most likely TRUE, following the evidence wherever it leads." },
+    { "name": "Consensus", "description": "Reach a position all can endorse.", "prompt_fragment": "The shared objective is to reach a CONSENSUS position that all participants can reasonably endorse, while honestly recording dissent." },
+    { "name": "Brainstorming", "description": "Generate many ideas without judgment.", "prompt_fragment": "The shared objective is to GENERATE many ideas. Defer judgment, build on others, and favor quantity and variety." },
+    { "name": "Policy Recommendation", "description": "Produce an actionable recommendation.", "prompt_fragment": "The shared objective is to produce an actionable POLICY RECOMMENDATION with clear tradeoffs and implementation steps." },
+    { "name": "Decision Support", "description": "Support a specific decision.", "prompt_fragment": "The shared objective is DECISION SUPPORT: clarify options, criteria, and consequences to help a decision-maker choose." },
+    { "name": "Research Agenda", "description": "Identify what to study next.", "prompt_fragment": "The shared objective is to define a RESEARCH AGENDA: the most important open questions and how to investigate them." },
+    { "name": "Teaching", "description": "Explain the topic clearly.", "prompt_fragment": "The shared objective is TEACHING: build a clear, well-scaffolded explanation a motivated learner could follow." },
+    { "name": "Red Teaming", "description": "Attack a plan to find weaknesses.", "prompt_fragment": "The shared objective is RED TEAMING: adversarially probe the plan or claim for weaknesses, failure modes, and blind spots." },
+    { "name": "Strategic Planning", "description": "Chart a path to a goal.", "prompt_fragment": "The shared objective is STRATEGIC PLANNING: chart a credible path from the current situation to the stated goal." },
+    { "name": "Risk Analysis", "description": "Map and rank risks.", "prompt_fragment": "The shared objective is RISK ANALYSIS: enumerate, rank, and mitigate the material risks." },
+    { "name": "Investment Evaluation", "description": "Assess an opportunity's merit.", "prompt_fragment": "The shared objective is INVESTMENT EVALUATION: assess the risk/return merit of the opportunity and the key value drivers." }
+  ]
+}

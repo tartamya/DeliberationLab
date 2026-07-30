@@ -1,0 +1,159 @@
+{
+  "_comment": "Debate modes are interchangeable PROTOCOLS. Each `phases` object maps a phase name to the per-turn instruction given to an agent when the engine is in that phase. R/debate_engine.R::select_phase() maps a round number to a phase name using this ladder: round 1 -> 'opening'; final round -> 'closing'; the round before the final -> 'revision' (if present) else 'reflection' (if present); all other rounds alternate 'response' and 'cross_examination'. Any phase the engine asks for but a mode omits falls back to 'response', then 'opening'. Add a mode by adding an object here -- no R changes.",
+  "debate_modes": [
+    {
+      "name": "Oxford",
+      "description": "Two sides argue a motion; structured rebuttal.",
+      "recommended_moderator": "Judge",
+      "min_agents": 2,
+      "phases": {
+        "opening": "State your side's position on the motion clearly, with your two strongest supporting arguments.",
+        "response": "Rebut the previous speaker's strongest point directly, then advance a new argument for your side.",
+        "cross_examination": "Ask one pointed question exposing a weakness in the opposing side, then answer the strongest question posed to you.",
+        "revision": "Concede any point the debate has genuinely won against you, and sharpen the argument you are most confident in.",
+        "closing": "Deliver a closing statement: summarize why your side should prevail on the balance of arguments."
+      }
+    },
+    {
+      "name": "Delphi",
+      "description": "Anonymous iterative convergence toward consensus.",
+      "recommended_moderator": "Facilitator",
+      "min_agents": 3,
+      "phases": {
+        "opening": "Give your independent estimate/position on the question, with brief justification. Do not reference other participants.",
+        "response": "Having seen the range of positions, state whether and why you are revising your own. Move toward or away from the group as the arguments warrant.",
+        "reflection": "Identify the remaining source of divergence in the group and what evidence would resolve it.",
+        "closing": "Give your final position and your confidence in it."
+      }
+    },
+    {
+      "name": "Courtroom",
+      "description": "Prosecution, defense, and a weighing of evidence.",
+      "recommended_moderator": "Judge",
+      "min_agents": 2,
+      "phases": {
+        "opening": "Present your opening argument as prosecution or defense of the proposition, previewing your evidence.",
+        "response": "Examine the evidence just presented: what does it prove, what does it not, and what is missing?",
+        "cross_examination": "Cross-examine the opposing argument: expose assumptions, gaps, and admissibility problems.",
+        "closing": "Deliver your closing argument to the finder of fact."
+      }
+    },
+    {
+      "name": "Scientific Conference",
+      "description": "Hypotheses presented and peer-critiqued.",
+      "recommended_moderator": "Scientific",
+      "min_agents": 3,
+      "phases": {
+        "opening": "Present a clear, falsifiable hypothesis relevant to the topic, with the mechanism you propose.",
+        "response": "Critically review the most recent hypothesis: strengths, flaws, confounders, and missing controls.",
+        "reflection": "Assess the statistical/evidentiary basis of the round's claims and flag weak inference.",
+        "closing": "Synthesize: what is well-supported, what needs more study, and the strongest hypothesis standing."
+      }
+    },
+    {
+      "name": "Peer Review",
+      "description": "Structured critique against acceptance criteria.",
+      "recommended_moderator": "Scientific",
+      "min_agents": 2,
+      "phases": {
+        "opening": "State the claim under review and the criteria by which it should be judged.",
+        "response": "Review against the criteria: major concerns, minor concerns, and what would need to change to accept it.",
+        "revision": "Propose the specific revisions that would address the concerns raised.",
+        "closing": "Give a recommendation: accept, minor revision, major revision, or reject, with reasons."
+      }
+    },
+    {
+      "name": "Socratic Dialogue",
+      "description": "Questioning surfaces assumptions before answers.",
+      "recommended_moderator": "Teacher",
+      "min_agents": 2,
+      "phases": {
+        "opening": "Ask probing questions only. Do NOT propose answers yet -- surface the hidden assumptions in the topic.",
+        "response": "Ask a follow-up question that presses on the weakest assumption exposed so far.",
+        "reflection": "Name the assumptions the questioning has revealed and which now look untenable.",
+        "closing": "Now answer the strongest open questions, citing which question you are answering."
+      }
+    },
+    {
+      "name": "Panel Discussion",
+      "description": "Experts give perspectives and respond.",
+      "recommended_moderator": "Journalist",
+      "min_agents": 2,
+      "phases": {
+        "opening": "Give your expert perspective on the topic in your own domain's terms.",
+        "response": "Respond to a point another panelist made, agreeing or disagreeing with reasons.",
+        "closing": "Give your final takeaway for the audience."
+      }
+    },
+    {
+      "name": "Round Table",
+      "description": "Equal, free-flowing contribution.",
+      "recommended_moderator": "Facilitator",
+      "min_agents": 2,
+      "phases": {
+        "opening": "Contribute your opening view on the topic.",
+        "response": "Build on or challenge the discussion so far, adding something new.",
+        "closing": "Offer your concluding thought."
+      }
+    },
+    {
+      "name": "Town Hall",
+      "description": "Diverse stakeholders voice concerns.",
+      "recommended_moderator": "Facilitator",
+      "min_agents": 3,
+      "phases": {
+        "opening": "Voice your stakeholder group's central concern or hope regarding the topic.",
+        "response": "React to another stakeholder's concern: where do your interests align or conflict?",
+        "closing": "State what outcome would best serve the people you represent."
+      }
+    },
+    {
+      "name": "Devil's Advocate",
+      "description": "Every claim is deliberately attacked.",
+      "recommended_moderator": "Neutral",
+      "min_agents": 2,
+      "phases": {
+        "opening": "Advance a position on the topic that you will then have to defend against attack.",
+        "response": "Attack the strongest standing claim as hard as you honestly can, then defend your own.",
+        "revision": "Repair your position against the attacks that landed, or abandon it if it cannot be repaired.",
+        "closing": "State what survived the adversarial process."
+      }
+    },
+    {
+      "name": "Fishbowl",
+      "description": "A few speak while others observe, then swap.",
+      "recommended_moderator": "Facilitator",
+      "min_agents": 3,
+      "phases": {
+        "opening": "As an inner-circle speaker, open the discussion on the topic.",
+        "response": "Respond to the inner-circle exchange, advancing the conversation.",
+        "reflection": "As an observer stepping in, reflect on what the inner circle missed.",
+        "closing": "Summarize the fishbowl's collective insight."
+      }
+    },
+    {
+      "name": "Consensus Workshop",
+      "description": "Structured facilitation toward agreement.",
+      "recommended_moderator": "Facilitator",
+      "min_agents": 3,
+      "phases": {
+        "opening": "Contribute your must-have requirement for any acceptable outcome.",
+        "response": "Identify which requirements are compatible and where the real tensions lie.",
+        "revision": "Propose a synthesis that satisfies as many must-haves as possible.",
+        "closing": "State whether you can endorse the emerging synthesis and any reservation you hold."
+      }
+    },
+    {
+      "name": "Policy Hearing",
+      "description": "Testimony and questioning on a proposal.",
+      "recommended_moderator": "Policy Expert",
+      "min_agents": 2,
+      "phases": {
+        "opening": "Give testimony on the proposal from your expertise: expected effects and tradeoffs.",
+        "response": "Question the previous testimony on feasibility, cost, or unintended consequences.",
+        "revision": "Recommend amendments that would improve the proposal.",
+        "closing": "State your final recommendation to the committee."
+      }
+    }
+  ]
+}

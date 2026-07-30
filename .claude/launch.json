@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "deliberation-lab",
+      "runtimeExecutable": "C:/Program Files/R/R-4.4.3/bin/Rscript.exe",
+      "runtimeArgs": ["-e", "shiny::runApp('C:/R Projects/Debate Simulator', port=7788, launch.browser=FALSE)"],
+      "port": 7788
+    }
+  ]
+}
