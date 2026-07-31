@@ -55,36 +55,53 @@ json_snippet <- function(txt, n = 180) {
 # Returns: list(parsed=, ok=, error=, usage=, model=, cached=, text=)
 #   parsed = the parsed list, or NULL if it still couldn't be parsed
 #   text   = the FIRST reply's raw text (for a diagnostic snippet)
+# `fallbacks` = an ordered list of list(provider=, key=) to try if the primary
+# provider errors or won't return parseable JSON (e.g. the meta provider timed
+# out). The FIRST provider that returns a valid JSON object wins; if none do,
+# the last attempt is returned so the caller can fall back to its heuristic.
+# `provider` in the return records which provider actually produced the result.
 llm_json <- function(cfg, provider_id, messages, api_key, max_tokens = 4000,
-                     temperature = 0.2, use_cache = FALSE) {
-  res <- llm_chat(cfg, provider_id, messages, api_key, max_tokens = max_tokens,
-                  temperature = temperature, reasoning_effort = NULL, use_cache = use_cache)
-  if (!isTRUE(res$ok)) {
-    return(list(parsed = NULL, ok = FALSE, error = res$error, usage = res$usage,
-                model = res$model, cached = isTRUE(res$cached), text = NULL))
-  }
-  parsed <- parse_json_response(res$text)
-  usage <- res$usage; model <- res$model
-  if (is.null(parsed)) {
-    retry <- c(messages,
-      list(list(role = "assistant", content = substr(res$text %||% "", 1, 4000)),
-           list(role = "user", content = paste0(
-             "Your reply was NOT valid JSON and could not be parsed. Reply again with ONLY a single, ",
-             "COMPLETE, valid JSON object matching the schema exactly -- no markdown fences, no comments, ",
-             "no text before or after. Keep string values concise so the JSON is not truncated."))))
-    res2 <- llm_chat(cfg, provider_id, retry, api_key, max_tokens = max_tokens,
-                     temperature = min(temperature, 0.2), reasoning_effort = NULL, use_cache = FALSE)
-    if (isTRUE(res2$ok)) {
-      parsed <- parse_json_response(res2$text)
-      g <- function(u, k) suppressWarnings(as.numeric((u %||% list())[[k]] %||% NA))
-      usage <- list(  # attribute BOTH calls' tokens
-        prompt_tokens = sum(c(g(res$usage, "prompt_tokens"), g(res2$usage, "prompt_tokens")), na.rm = TRUE),
-        completion_tokens = sum(c(g(res$usage, "completion_tokens"), g(res2$usage, "completion_tokens")), na.rm = TRUE))
-      model <- res2$model
+                     temperature = 0.2, use_cache = FALSE, fallbacks = list()) {
+  # One provider's attempt: a call plus a single self-correcting JSON retry.
+  attempt <- function(pid, key) {
+    res <- llm_chat(cfg, pid, messages, key, max_tokens = max_tokens,
+                    temperature = temperature, reasoning_effort = NULL, use_cache = use_cache)
+    if (!isTRUE(res$ok)) {
+      return(list(parsed = NULL, ok = FALSE, error = res$error, usage = res$usage,
+                  model = res$model, cached = isTRUE(res$cached), text = NULL, provider = pid))
     }
+    parsed <- parse_json_response(res$text)
+    usage <- res$usage; model <- res$model
+    if (is.null(parsed)) {
+      retry <- c(messages,
+        list(list(role = "assistant", content = substr(res$text %||% "", 1, 4000)),
+             list(role = "user", content = paste0(
+               "Your reply was NOT valid JSON and could not be parsed. Reply again with ONLY a single, ",
+               "COMPLETE, valid JSON object matching the schema exactly -- no markdown fences, no comments, ",
+               "no text before or after. Keep string values concise so the JSON is not truncated."))))
+      res2 <- llm_chat(cfg, pid, retry, key, max_tokens = max_tokens,
+                       temperature = min(temperature, 0.2), reasoning_effort = NULL, use_cache = FALSE)
+      if (isTRUE(res2$ok)) {
+        parsed <- parse_json_response(res2$text)
+        g <- function(u, k) suppressWarnings(as.numeric((u %||% list())[[k]] %||% NA))
+        usage <- list(  # attribute BOTH calls' tokens
+          prompt_tokens = sum(c(g(res$usage, "prompt_tokens"), g(res2$usage, "prompt_tokens")), na.rm = TRUE),
+          completion_tokens = sum(c(g(res$usage, "completion_tokens"), g(res2$usage, "completion_tokens")), na.rm = TRUE))
+        model <- res2$model
+      }
+    }
+    list(parsed = parsed, ok = TRUE, error = NULL, usage = usage, model = model,
+         cached = isTRUE(res$cached), text = res$text, provider = pid)
   }
-  list(parsed = parsed, ok = TRUE, error = NULL, usage = usage, model = model,
-       cached = isTRUE(res$cached), text = res$text)
+  # Primary first, then each fallback; stop at the first PARSED result.
+  chain <- c(list(list(provider = provider_id, key = api_key)), fallbacks)
+  last <- NULL
+  for (att in chain) {
+    r <- attempt(att$provider, att$key)
+    if (!is.null(r$parsed)) return(r)   # valid JSON -> success
+    last <- r
+  }
+  last                                   # none parsed -> caller uses heuristic
 }
 
 # ---- Agent persona ----------------------------------------------------------

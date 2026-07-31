@@ -11,7 +11,8 @@
 # =============================================================================
 
 # Structured final synthesis. reasoning_effort = NULL (structured-JSON call).
-consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key, use_cache = FALSE) {
+consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key, use_cache = FALSE,
+                             fallbacks = list()) {
   prompt <- paste0(
     "You are synthesizing the FINAL outcome of a multi-agent deliberation on: \"", topic, "\".\n",
     "Full transcript follows:\n\n", full_history_txt, "\n\n",
@@ -21,8 +22,8 @@ consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key,
     '"decision_matrix": [{"option": string, "pros": string, "cons": string, "verdict": string}]}'
   )
   r <- llm_json(cfg, provider_id, list(list(role = "user", content = prompt)), api_key,
-                max_tokens = 3500, temperature = 0.3, use_cache = use_cache)
-  meta <- list(usage = r$usage, model = r$model, cached = r$cached)
+                max_tokens = 3500, temperature = 0.3, use_cache = use_cache, fallbacks = fallbacks)
+  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider)
   if (!isTRUE(r$ok)) return(c(list(ok = FALSE, error = r$error, data = NULL), meta))
   if (is.null(r$parsed))
     return(c(list(ok = FALSE, error = paste0("Consensus returned non-JSON after a retry. Output began: ",

@@ -126,16 +126,58 @@
       ]
     },
     {
-      "id": "local",
-      "label": "Local / OpenAI-compatible",
+      "id": "deepseek",
+      "label": "DeepSeek",
       "api_type": "openai_chat",
-      "endpoint": "http://localhost:11434/v1/chat/completions",
-      "default_model": "llama3.1",
+      "endpoint": "https://api.deepseek.com/v1/chat/completions",
+      "_note": "OpenAI-compatible. deepseek-chat = V3 (non-reasoning); deepseek-reasoner = R1 (reasoning, burns hidden tokens -> keep Max Tokens high). DeepSeek does NOT accept an OpenAI-style reasoning_effort param, so reasoning_effort_levels is intentionally empty. Key `deepseek` in config/secrets.R or env DEEPSEEK_API_KEY.",
+      "default_model": "deepseek-chat",
       "models": [
-        "llama3.1",
-        "qwen2.5"
+        "deepseek-chat",
+        "deepseek-reasoner"
       ],
       "max_tokens": 8192,
+      "context_window": 65536,
+      "thinking": true,
+      "needs_key": true,
+      "key_name": "deepseek",
+      "key_env": "DEEPSEEK_API_KEY",
+      "reasoning_effort_levels": []
+    },
+    {
+      "id": "mistral",
+      "label": "Mistral AI",
+      "api_type": "openai_chat",
+      "endpoint": "https://api.mistral.ai/v1/chat/completions",
+      "_note": "OpenAI-compatible chat endpoint. Key `mistral` in config/secrets.R or env MISTRAL_API_KEY.",
+      "default_model": "mistral-large-latest",
+      "models": [
+        "mistral-large-latest",
+        "mistral-small-latest",
+        "open-mistral-nemo"
+      ],
+      "max_tokens": 8192,
+      "context_window": 128000,
+      "thinking": false,
+      "needs_key": true,
+      "key_name": "mistral",
+      "key_env": "MISTRAL_API_KEY",
+      "reasoning_effort_levels": []
+    },
+    {
+      "id": "local",
+      "label": "Local (Ollama / OpenAI-compatible)",
+      "api_type": "openai_chat",
+      "endpoint": "http://localhost:11434/v1/chat/completions",
+      "_note": "Ollama's OpenAI-compatible endpoint (no key). Model names MUST match an `ollama list` tag EXACTLY (e.g. 'qwen2.5:7b', not 'qwen2.5'). Add whatever you have pulled. NOTE: Ollama serves with a default context (num_ctx, often 4096) that can be smaller than the model's max -- long prompts may be truncated; raise num_ctx in your Ollama/Modelfile settings if needed.",
+      "default_model": "qwen2.5:7b",
+      "models": [
+        "qwen2.5:7b",
+        "llama3.1:8b",
+        "mistral:7b"
+      ],
+      "max_tokens": 8192,
+      "timeout_sec": 600,
       "thinking": false,
       "needs_key": false,
       "key_name": "local",

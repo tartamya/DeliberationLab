@@ -20,6 +20,8 @@ API_KEYS <- list(
   sarvam = "",   # https://docs.sarvam.ai/  (starts "sk_")
   gemini = "",   # https://aistudio.google.com/app/apikey
   celeris = "",  # Celeris key (also set its endpoint in config/providers.json)
+  deepseek = "", # https://platform.deepseek.com/api_keys
+  mistral = "",  # https://console.mistral.ai/
   local  = ""    # usually blank for Ollama / LM Studio
 )
 

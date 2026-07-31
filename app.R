@@ -138,7 +138,10 @@ ui <- page_navbar(
     uiOutput("key_test_result_sidebar"),
     selectInput("meta_provider", "Planner / Moderator / Synthesis provider",
                 choices = provider_choices(CONFIG),
-                selected = DEFAULT_ACTIVE[1]),
+                # Moderator (and planner/synthesis) default to Sarvam when it has
+                # a key -- cheap and steady for the structured-JSON meta calls --
+                # otherwise the first available provider.
+                selected = if ("sarvam" %in% DEFAULT_ACTIVE) "sarvam" else DEFAULT_ACTIVE[1]),
     hr(),
     h5("Run settings"),
     selectInput("mode", "Debate mode", choices = vocab_choices(CONFIG$debate_modes),
@@ -468,6 +471,19 @@ server <- function(input, output, session) {
   # Provider used for planner / moderator / consensus meta-calls.
   meta_key <- reactive(resolve_api_key(cfg, input$meta_provider, rv$ui_keys))
 
+  # Ordered fallback providers (with keys) for the meta-calls, so a failed/timed-
+  # out meta provider (e.g. Sarvam) hands off to a working one before dropping to
+  # the heuristic. Same priority as agent failover (DeepSeek first = cheapest),
+  # excluding the primary and `local` (slow/unreliable for structured JSON).
+  meta_fallbacks <- function(primary) {
+    keyed  <- available_providers(cfg, rv$ui_keys)
+    pri    <- c("deepseek", "mistral", "celeris", "claude", "openai")
+    ranked <- c(intersect(pri, keyed),
+                setdiff(intersect(provider_ids(cfg), keyed), c(pri, "local")))
+    ranked <- setdiff(ranked, c(primary, "local"))
+    lapply(ranked, function(p) list(provider = p, key = resolve_api_key(cfg, p, rv$ui_keys)))
+  }
+
   # Model override map from the Debate Setup selectors (provider_id -> model).
   model_for <- function(provider_id) {
     v <- input[[paste0("model_", provider_id)]]
@@ -538,12 +554,13 @@ server <- function(input, output, session) {
     withProgress(message = "Planning deliberation...", value = 0.5, {
       out <- run_planner(input$topic, cfg, input$meta_provider, key,
                          n_agents_hint = n_hint, use_cache = input$use_cache,
-                         problem_details = input$problem_details)
+                         problem_details = input$problem_details,
+                         fallbacks = meta_fallbacks(input$meta_provider))
     })
     rv$plan <- out$plan
     rv$plan_msg <- out$error
     if (!is.null(out$error)) log_event("WARN", paste("Planner:", out$error))
-    log_usage("planner", input$meta_provider, out$model, out$usage, out$cached)
+    log_usage("planner", out$provider %||% input$meta_provider, out$model, out$usage, out$cached)
   })
 
   output$planner_msg <- renderUI({
@@ -926,9 +943,54 @@ server <- function(input, output, session) {
     obj_fragment <- (cfg_find(cfg$objectives, input$objective)$prompt_fragment) %||% ""
     dims_txt <- dimensions_txt()
     meta_prov <- input$meta_provider; meta_k <- meta_key()
+    meta_fb <- meta_fallbacks(meta_prov)   # meta-call provider failover list
     max_tokens <- input$max_tokens; temperature <- input$temperature
     reff <- reasoning_effort(); lang <- if (nzchar(input$language)) input$language else NULL
     use_cache <- input$use_cache
+
+    # ---- Provider failover --------------------------------------------------
+    # If an agent's (provider, model) errors mid-run, reassign it to a working
+    # one and retry, so one flaky provider can't kill participants' turns.
+    #
+    # Failover works on SLOTS = (provider, model) pairs, so a failed LOCAL model
+    # can fall back to another LOCAL model before touching paid cloud.
+    #  - CLOUD agent fails  -> cloud slots only, in fixed priority: DeepSeek,
+    #    Mistral, Celeris, Claude, OpenAI, then any other keyed provider. `local`
+    #    is never an auto-target for a cloud agent.
+    #  - LOCAL agent fails  -> other LOCAL models FIRST (prefer-local policy),
+    #    then the cloud priority list as a last resort.
+    # Within either order we first try slots NOT already used by another agent
+    # (diversity); only if every fresh slot is exhausted do we allow a repeat.
+    # `run_failed_keys` accumulates slots that errored so a known-bad one is
+    # never re-picked. Slots are keyed "provider|model" (model resolved to the
+    # provider default when unset) so tracking is consistent.
+    keyed_pool <- available_providers(cfg, rv$ui_keys)
+    realloc_priority <- c("deepseek", "mistral", "celeris", "claude", "openai")
+    cloud_ranked <- {
+      pref  <- intersect(realloc_priority, keyed_pool)              # preferred, in order
+      other <- setdiff(intersect(provider_ids(cfg), keyed_pool),    # remaining keyed,
+                       c(realloc_priority, "local"))                # config order, no local
+      c(pref, other)
+    }
+    local_models <- unlist(provider_by_id(cfg, "local")$models %||% list())
+    resolve_model <- function(p, m) m %||% (provider_by_id(cfg, p)$default_model)
+    slot_key   <- function(p, m) paste0(p, "|", resolve_model(p, m))
+    cloud_slots <- lapply(cloud_ranked, function(p) list(provider = p, model = model_for(p)))
+    local_slots <- lapply(local_models, function(m) list(provider = "local", model = m))
+    run_failed_keys <- character(0)
+    used_slot_keys <- function()
+      vapply(active_agents, function(x) slot_key(x$provider, x$model), character(1))
+    pick_replacement <- function(cur_p, cur_m, failed_keys, in_use_keys = character(0)) {
+      cands <- if (identical(cur_p, "local")) c(local_slots, cloud_slots) else cloud_slots
+      ck <- slot_key(cur_p, cur_m)
+      cands <- Filter(function(s) {
+        k <- slot_key(s$provider, s$model); !identical(k, ck) && !(k %in% failed_keys)
+      }, cands)
+      if (length(cands) == 0) return(NULL)
+      fresh <- Filter(function(s) !(slot_key(s$provider, s$model) %in% in_use_keys), cands)
+      pool  <- if (length(fresh) > 0) fresh else cands
+      pool[[1]]
+    }
 
     progress <- shiny::Progress$new(session, min = 0, max = n_rounds)
     progress$set(message = "Running deliberation...", value = 0)
@@ -944,17 +1006,57 @@ server <- function(input, output, session) {
           round_texts <- list()
           for (i in seq_along(active_agents)) {
             a <- active_agents[[i]]
+            # Resolve the concrete model up front so slot keys are consistent.
+            # Keep an already-set model (e.g. a prior round's reallocation);
+            # otherwise take the UI selector, else the provider default. Without
+            # the `a$model %||%` guard, a reallocated local agent would be reset
+            # to the UI/default model each round and flip-flop between models.
+            a$model <- resolve_model(a$provider, a$model %||% model_for(a$provider))
+            # Pre-emptive swap: if this agent's (provider|model) already failed
+            # earlier this run, move it before wasting a guaranteed error.
+            if (slot_key(a$provider, a$model) %in% run_failed_keys) {
+              rp <- pick_replacement(a$provider, a$model, run_failed_keys, used_slot_keys())
+              if (!is.null(rp)) {
+                old <- slot_key(a$provider, a$model)
+                a$provider <- rp$provider; a$model <- resolve_model(rp$provider, rp$model)
+                log_event("INFO", paste0("Round ", r, ": moved ", a$name, " off failed '",
+                                         old, "' to '", slot_key(a$provider, a$model), "'."))
+              }
+            }
             rv$current_speaker <- a$name
             phase <- select_phase(mode_cfg, r, n_rounds, i)
-            a$model <- model_for(a$provider)
-            turn <- run_turn(cfg, a, phase, topic, rv$history, rv$kg, mode_name, obj_fragment,
-                             dims_txt, r, resolve_api_key(cfg, a$provider, rv$ui_keys),
-                             max_tokens, temperature, reff,
-                             current_confidence = if (!is.null(rv$analytics) && nrow(rv$analytics) > 0)
-                               paste0(round(mean(rv$analytics$confidence, na.rm = TRUE)), "%") else NULL,
-                             current_consensus = if (!is.null(rv$consensus)) rv$consensus$consensus else NULL,
-                             language = lang, use_cache = use_cache,
-                             problem_details = pdetails)
+            # Try the turn; on error, remember the bad slot, reallocate to a fresh
+            # one (local-first for local agents), and retry until one works or the
+            # pool is exhausted (then the [ERROR:] placeholder stands, as before).
+            turn <- NULL
+            repeat {
+              turn <- run_turn(cfg, a, phase, topic, rv$history, rv$kg, mode_name, obj_fragment,
+                               dims_txt, r, resolve_api_key(cfg, a$provider, rv$ui_keys),
+                               max_tokens, temperature, reff,
+                               current_confidence = if (!is.null(rv$analytics) && nrow(rv$analytics) > 0)
+                                 paste0(round(mean(rv$analytics$confidence, na.rm = TRUE)), "%") else NULL,
+                               current_consensus = if (!is.null(rv$consensus)) rv$consensus$consensus else NULL,
+                               language = lang, use_cache = use_cache,
+                               problem_details = pdetails)
+              if (isTRUE(turn$ok)) break
+              run_failed_keys <<- union(run_failed_keys, slot_key(a$provider, a$model))
+              rp <- pick_replacement(a$provider, a$model, run_failed_keys, used_slot_keys())
+              if (is.null(rp)) break   # no working alternative -- keep the error turn
+              old  <- slot_key(a$provider, a$model)
+              a$provider <- rp$provider; a$model <- resolve_model(rp$provider, rp$model)
+              newk <- slot_key(a$provider, a$model)
+              log_event("WARN", paste0("Round ", r, " ", a$name, ": '", old, "' failed (",
+                                       turn$error %||% "error", ") -- reallocating to '", newk, "'."))
+              showNotification(paste0(a$name, ": ", old, " failed -- switched to ", newk),
+                               type = "warning", duration = 5)
+            }
+            # Keep the reassignment for the rest of THIS run (so a reallocated
+            # agent stays on its working provider next round instead of reverting
+            # and re-erroring). Deliberately NOT written back to rv$agents: the
+            # configured roster stays intact so the next run starts fresh from the
+            # user's chosen providers (and retries a recovered provider). The
+            # actual provider used each turn is recorded in the transcript/log.
+            active_agents[[i]] <<- a
             rv$history <- c(rv$history, list(turn))
             rv$agents <- update_agent_memory(rv$agents, turn)
             round_texts[[a$name]] <- turn$text
@@ -962,11 +1064,12 @@ server <- function(input, output, session) {
                       agent = turn$agent, round = r)
             if (!isTRUE(turn$ok)) {
               log_event("ERROR", paste0("Round ", r, " ", turn$agent, " (", turn$provider, "): ",
-                                        turn$error %||% "unknown error"))
+                                        turn$error %||% "unknown error (no working provider left to reallocate)"))
             }
           }
-          mod <- moderator_call(cfg, topic, round_texts, r, meta_prov, meta_k, mode_name, moderator_name)
-          log_usage("moderator", meta_prov, mod$model, mod$usage, mod$cached, round = r)
+          mod <- moderator_call(cfg, topic, round_texts, r, meta_prov, meta_k, mode_name, moderator_name,
+                                fallbacks = meta_fb)
+          log_usage("moderator", mod$provider %||% meta_prov, mod$model, mod$usage, mod$cached, round = r)
           if (!isTRUE(mod$ok)) {
             log_event("WARN", paste0("Round ", r, " moderator fell back to heuristic: ", mod$error))
             showNotification(paste0("Round ", r, " moderator fell back to heuristic: ", mod$error),
@@ -1103,13 +1206,14 @@ server <- function(input, output, session) {
     req(length(rv$history) > 0)
     withProgress(message = "Synthesizing consensus...", value = 0.5, {
       res <- consensus_engine(cfg, input$topic, export_txt(rv$history), input$meta_provider, meta_key(),
-                              use_cache = input$use_cache)
+                              use_cache = input$use_cache,
+                              fallbacks = meta_fallbacks(input$meta_provider))
     })
     if (!isTRUE(res$ok)) {
       log_event("ERROR", paste("Consensus failed:", res$error))
       showNotification(paste("Consensus failed:", res$error), type = "error")
     } else rv$consensus <- res$data
-    log_usage("consensus", input$meta_provider, res$model, res$usage, res$cached)
+    log_usage("consensus", res$provider %||% input$meta_provider, res$model, res$usage, res$cached)
   })
   # Coordinator line shown under the heading of every exported PDF.
   coord_meta <- function() {

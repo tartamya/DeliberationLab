@@ -121,7 +121,10 @@ llm_count_tokens <- function(text) {
   if (!is.null(api_key) && nchar(trimws(api_key)) > 0) {
     headers$Authorization <- paste("Bearer", api_key)
   }
-  post <- function(b) safe_api_post(prov$endpoint, headers, b)
+  # Local providers (CPU inference) need a much longer timeout than cloud APIs;
+  # honour a per-provider `timeout_sec` (default 90s).
+  tmo <- suppressWarnings(as.numeric(prov$timeout_sec %||% 90)); if (is.na(tmo)) tmo <- 90
+  post <- function(b) safe_api_post(prov$endpoint, headers, b, timeout_sec = tmo)
   res <- post(body)
 
   # Error-driven parameter fallbacks (learned the hard way in the CIRL app).
@@ -191,7 +194,8 @@ llm_count_tokens <- function(text) {
 
   headers <- list(`x-api-key` = api_key, `anthropic-version` = "2023-06-01",
                   `Content-Type` = "application/json")
-  post <- function(b) safe_api_post(prov$endpoint, headers, b)
+  tmo <- suppressWarnings(as.numeric(prov$timeout_sec %||% 90)); if (is.na(tmo)) tmo <- 90
+  post <- function(b) safe_api_post(prov$endpoint, headers, b, timeout_sec = tmo)
   res <- post(body)
   # Some newer Claude models reject `temperature` ("temperature is deprecated
   # for this model"). Drop it and retry rather than failing the turn -- mirrors
@@ -236,7 +240,8 @@ llm_count_tokens <- function(text) {
 
   url <- paste0(prov$endpoint, "/", model, ":generateContent")
   headers <- list(`x-goog-api-key` = api_key, `Content-Type` = "application/json")
-  res <- safe_api_post(url, headers, body)
+  tmo <- suppressWarnings(as.numeric(prov$timeout_sec %||% 90)); if (is.na(tmo)) tmo <- 90
+  res <- safe_api_post(url, headers, body, timeout_sec = tmo)
   if (!isTRUE(res$ok)) return(list(ok = FALSE, text = NULL, error = res$error))
   txt <- tryCatch({
     parts <- res$raw$candidates[[1]]$content$parts

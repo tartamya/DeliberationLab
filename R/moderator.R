@@ -12,7 +12,8 @@
 # reasoning_effort is deliberately NULL here: structured-JSON call, reasoning
 # tokens would starve the output budget and truncate the JSON.
 moderator_call <- function(cfg, topic, round_texts, round_number, provider_id, api_key,
-                           mode_name, moderator_name = "Neutral", use_cache = FALSE) {
+                           mode_name, moderator_name = "Neutral", use_cache = FALSE,
+                           fallbacks = list()) {
   mod_cfg <- cfg_find(cfg$moderators, moderator_name)
   style <- if (!is.null(mod_cfg)) mod_cfg$style_prompt else "You are a neutral moderator."
   prompt <- paste0(
@@ -33,8 +34,9 @@ moderator_call <- function(cfg, topic, round_texts, round_number, provider_id, a
   # grows with the number of agents, so truncation is the usual cause of an
   # unparseable reply.
   r <- llm_json(cfg, provider_id, list(list(role = "user", content = prompt)),
-                api_key, max_tokens = 4000, temperature = 0.2, use_cache = use_cache)
-  meta <- list(usage = r$usage, model = r$model, cached = r$cached)
+                api_key, max_tokens = 4000, temperature = 0.2, use_cache = use_cache,
+                fallbacks = fallbacks)
+  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider)
   if (!isTRUE(r$ok)) {
     return(c(list(ok = FALSE, error = r$error, data = heuristic_round_summary(round_texts)), meta))
   }

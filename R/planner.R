@@ -83,16 +83,17 @@ planner_heuristic <- function(topic, cfg, n_agents_hint = NULL) {
 # failure. reasoning_effort is deliberately NULL: this is a structured-JSON
 # call and reasoning tokens would starve the JSON output budget.
 run_planner <- function(topic, cfg, provider_id, api_key, n_agents_hint = NULL, use_cache = TRUE,
-                        problem_details = NULL) {
+                        problem_details = NULL, fallbacks = list()) {
   if (is.null(topic) || nchar(trimws(topic)) == 0) {
     return(list(ok = FALSE, error = "Empty topic.", plan = NULL))
   }
   msgs <- build_planner_messages(topic, cfg, n_agents_hint, problem_details = problem_details)
   # 4000 tokens + a self-correcting retry (via llm_json): the plan JSON is large
-  # and TRUNCATION is the most common cause of an unparseable reply.
+  # and TRUNCATION is the most common cause of an unparseable reply. `fallbacks`
+  # lets a failed/timed-out meta provider hand off to a working one.
   r <- llm_json(cfg, provider_id, msgs, api_key, max_tokens = 4000, temperature = 0.4,
-                use_cache = use_cache)
-  meta <- list(usage = r$usage, model = r$model, cached = r$cached)
+                use_cache = use_cache, fallbacks = fallbacks)
+  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider)
   if (!isTRUE(r$ok)) {
     return(c(list(ok = TRUE, error = paste("LLM planner failed, used heuristic:", r$error),
                   plan = planner_heuristic(topic, cfg, n_agents_hint)), meta))
