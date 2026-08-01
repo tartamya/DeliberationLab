@@ -22,6 +22,7 @@ API_KEYS <- list(
   celeris = "",  # Celeris key (also set its endpoint in config/providers.json)
   deepseek = "", # https://platform.deepseek.com/api_keys
   mistral = "",  # https://console.mistral.ai/
+  perplexity = "", # https://www.perplexity.ai/settings/api  (web-connected Sonar models)
   local  = ""    # usually blank for Ollama / LM Studio
 )
 

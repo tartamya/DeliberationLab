@@ -89,12 +89,21 @@ THINKING_MIN_TOKENS <- 1000
 
 # Providers enabled by default: those with a usable key, EXCLUDING `local`
 # (needs_key = FALSE, but points at a localhost server that may not be
-# running -- defaulting agents onto it would make every turn error). Falls
-# back gracefully if nothing else is available.
+# running -- defaulting agents onto it would make every turn error) and also
+# EXCLUDING `openai` and `claude` (left unchecked by default -- opt in when
+# wanted). Each exclusion falls back gracefully if it would leave nothing:
+# if only local / only openai+claude are available, they are used so the app
+# always has a sensible default selection.
 DEFAULT_ACTIVE <- local({
-  av <- available_providers(CONFIG)
+  av   <- available_providers(CONFIG)
   pref <- setdiff(av, "local")
-  if (length(pref)) pref else if (length(av)) av else provider_ids(CONFIG)[1]
+  # openai/claude (premium) and perplexity (per-request web-search fee) are left
+  # unchecked by default -- opt in when wanted.
+  pref_no_premium <- setdiff(pref, c("openai", "claude", "perplexity"))
+  if (length(pref_no_premium)) pref_no_premium
+  else if (length(pref)) pref
+  else if (length(av)) av
+  else provider_ids(CONFIG)[1]
 })
 
 # =============================================================================
@@ -137,7 +146,9 @@ ui <- page_navbar(
                  class = "btn-sm btn-outline-secondary", width = "100%"),
     uiOutput("key_test_result_sidebar"),
     selectInput("meta_provider", "Planner / Moderator / Synthesis provider",
-                choices = provider_choices(CONFIG),
+                # Perplexity is omitted here: its web models aren't tuned for the
+                # strict-JSON meta calls (it stays selectable as an agent provider).
+                choices = local({ ch <- provider_choices(CONFIG); ch[ch != "perplexity"] }),
                 # Moderator (and planner/synthesis) default to Sarvam when it has
                 # a key -- cheap and steady for the structured-JSON meta calls --
                 # otherwise the first available provider.
@@ -265,6 +276,7 @@ ui <- page_navbar(
             actionButton("ag_up", "Move up", class = "btn-sm"),
             actionButton("ag_down", "Move down", class = "btn-sm"),
             actionButton("ag_randomize", "Randomize dials", class = "btn-sm"),
+            actionButton("ag_reset_dials", "Reset dials", class = "btn-sm"),
             actionButton("save_agent_to_library", "💾 Save to library", class = "btn-sm btn-outline-secondary")
           ),
           helpText("Shuffle roster replaces all participants with a fresh random set on the active providers. ",
@@ -461,7 +473,7 @@ server <- function(input, output, session) {
     current_speaker = NULL, formatted_output = "",
     ui_keys = list(),
     usage_log = list(),  # one record per LLM call, for token/cost accounting
-    run_log = list(),    # errors/warnings during a deliberation (Debate Setup tab)
+    run_log = list(),    # activity log: run clicks, API calls, warnings/errors (Debate Setup tab)
     loaded_providers = NULL  # one-shot: providers a just-loaded debate needs active
   )
 
@@ -478,9 +490,12 @@ server <- function(input, output, session) {
   meta_fallbacks <- function(primary) {
     keyed  <- available_providers(cfg, rv$ui_keys)
     pri    <- c("deepseek", "mistral", "celeris", "claude", "openai")
+    # Exclude local and perplexity: neither is suited to the structured-JSON meta
+    # calls (local is slow; perplexity's web models aren't tuned for strict JSON
+    # and bill a per-request search fee).
     ranked <- c(intersect(pri, keyed),
-                setdiff(intersect(provider_ids(cfg), keyed), c(pri, "local")))
-    ranked <- setdiff(ranked, c(primary, "local"))
+                setdiff(intersect(provider_ids(cfg), keyed), c(pri, "local", "perplexity")))
+    ranked <- setdiff(ranked, c(primary, "local", "perplexity"))
     lapply(ranked, function(p) list(provider = p, key = resolve_api_key(cfg, p, rv$ui_keys)))
   }
 
@@ -502,10 +517,20 @@ server <- function(input, output, session) {
       call_type = call_type, agent = agent, round = round, provider = provider %||% NA_character_,
       model = model %||% NA_character_, prompt_tokens = pt, completion_tokens = ct,
       cached = isTRUE(cached), cost = cost)))
+    # Also surface every API call in the Run log (level "API" -- not counted as an
+    # error/warning). Shows what ran, on which provider/model, tokens and cost.
+    det  <- paste0(call_type,
+                   if (!is.na(round)) paste0(" R", round) else "",
+                   if (!is.na(agent) && nzchar(as.character(agent))) paste0(" [", agent, "]") else "")
+    toks <- if (is.na(pt) && is.na(ct)) "" else
+      sprintf(" | %s+%s tok", ifelse(is.na(pt), "?", round(pt)), ifelse(is.na(ct), "?", round(ct)))
+    money <- if (isTRUE(cached)) " | cached" else if (!is.na(cost) && cost > 0) sprintf(" | $%.4f", cost) else ""
+    log_event("API", paste0(det, " | ", provider %||% "?", "/", model %||% "?", toks, money))
   }
 
-  # Append a diagnostic entry to the Run log (Debate Setup tab). level is
-  # "ERROR" | "WARN" | "INFO". Bounded to the most recent 400 entries.
+  # Append an entry to the Run log (Debate Setup tab). level is
+  # "ERROR" | "WARN" | "INFO" | "API" (API = per-call trace, not counted as an
+  # issue in the summary). Bounded to the most recent 400 entries.
   log_event <- function(level, msg) {
     entry <- list(time = format(Sys.time(), "%H:%M:%S"), level = level, msg = as.character(msg))
     rv$run_log <- c(rv$run_log, list(entry))
@@ -560,6 +585,8 @@ server <- function(input, output, session) {
     rv$plan <- out$plan
     rv$plan_msg <- out$error
     if (!is.null(out$error)) log_event("WARN", paste("Planner:", out$error))
+    if (is.null(out$error) && !is.null(out$provider) && !identical(out$provider, input$meta_provider))
+      log_event("WARN", paste0("Planner failed over from '", input$meta_provider, "' to '", out$provider, "'."))
     log_usage("planner", out$provider %||% input$meta_provider, out$model, out$usage, out$cached)
   })
 
@@ -723,13 +750,26 @@ server <- function(input, output, session) {
   }
   observeEvent(input$ag_up, move_agent(-1))
   observeEvent(input$ag_down, move_agent(1))
+  # Randomize / reset the three personality dials by moving the FORM sliders,
+  # exactly like every other field on this form: the change is visible and is
+  # applied on Save/Add. Deliberately does NOT write rv$agents -- doing so would
+  # re-render the roster table, drop the row selection, revert the button to
+  # "Add Agent", and risk adding a duplicate on the next click.
+  apply_to_agent_hint <- function()
+    if (!is.null(editing_idx())) "Click 'Save Changes' to apply." else "Click 'Add Agent' to apply."
   observeEvent(input$ag_randomize, {
-    sel <- input$agents_table_rows_selected
-    if (length(sel) == 1 && length(rv$agents) >= sel) {
-      a <- rv$agents[[sel]]
-      a$creativity <- round(runif(1), 2); a$skepticism <- round(runif(1), 2)
-      a$risk_tolerance <- round(runif(1), 2); rv$agents[[sel]] <- a
-    }
+    cr <- round(runif(1), 2); sk <- round(runif(1), 2); rk <- round(runif(1), 2)
+    updateSliderInput(session, "ag_creativity", value = cr)
+    updateSliderInput(session, "ag_skepticism", value = sk)
+    updateSliderInput(session, "ag_risk", value = rk)
+    showNotification(sprintf("Randomized dials -- creativity %.2f, skepticism %.2f, risk %.2f. %s",
+                             cr, sk, rk, apply_to_agent_hint()), type = "message")
+  })
+  observeEvent(input$ag_reset_dials, {
+    updateSliderInput(session, "ag_creativity", value = 0.5)
+    updateSliderInput(session, "ag_skepticism", value = 0.5)
+    updateSliderInput(session, "ag_risk", value = 0.5)
+    showNotification(sprintf("Reset dials to default (0.50). %s", apply_to_agent_hint()), type = "message")
   })
   observeEvent(input$shuffle_roster, {
     if (isTRUE(rv$running)) {
@@ -865,7 +905,7 @@ server <- function(input, output, session) {
   output$run_log <- renderUI({
     log <- rv$run_log
     if (length(log) == 0) return(NULL)
-    colour <- function(lvl) switch(lvl, ERROR = "#C0392B", WARN = "#B9770E", "#5B6B7A")
+    colour <- function(lvl) switch(lvl, ERROR = "#C0392B", WARN = "#B9770E", API = "#2C7A7B", "#5B6B7A")
     # newest first
     tags$div(lapply(rev(log), function(e) {
       tags$div(class = "run-log-line",
@@ -907,11 +947,13 @@ server <- function(input, output, session) {
   # =========================================================================
   observeEvent(input$stop_discussion, { rv$stop_requested <- TRUE })
 
-  start_run <- function() {
+  start_run <- function(source = "manual") {
     if (isTRUE(rv$running)) {
+      log_event("WARN", paste0("Run deliberation clicked (", source, ") while a run is in progress -- ignored."))
       showNotification("A deliberation is already running. Click Stop first.", type = "warning"); return()
     }
     rv$run_log <- list()   # fresh diagnostics log for this run attempt
+    log_event("INFO", paste0("Run deliberation clicked (", source, ")."))
     # Right after loading a saved debate, the active-providers checkbox update
     # may not have round-tripped from the client yet -- union in the loaded
     # debate's providers (one-shot) so a re-run never fails with a spurious
@@ -968,8 +1010,8 @@ server <- function(input, output, session) {
     realloc_priority <- c("deepseek", "mistral", "celeris", "claude", "openai")
     cloud_ranked <- {
       pref  <- intersect(realloc_priority, keyed_pool)              # preferred, in order
-      other <- setdiff(intersect(provider_ids(cfg), keyed_pool),    # remaining keyed,
-                       c(realloc_priority, "local"))                # config order, no local
+      other <- setdiff(intersect(provider_ids(cfg), keyed_pool),    # remaining keyed, config
+                       c(realloc_priority, "local", "perplexity"))  # order; no local/perplexity
       c(pref, other)
     }
     local_models <- unlist(provider_by_id(cfg, "local")$models %||% list())
@@ -1069,6 +1111,8 @@ server <- function(input, output, session) {
           }
           mod <- moderator_call(cfg, topic, round_texts, r, meta_prov, meta_k, mode_name, moderator_name,
                                 fallbacks = meta_fb)
+          if (isTRUE(mod$ok) && !is.null(mod$provider) && !identical(mod$provider, meta_prov))
+            log_event("WARN", paste0("Round ", r, " moderator failed over from '", meta_prov, "' to '", mod$provider, "'."))
           log_usage("moderator", mod$provider %||% meta_prov, mod$model, mod$usage, mod$cached, round = r)
           if (!isTRUE(mod$ok)) {
             log_event("WARN", paste0("Round ", r, " moderator fell back to heuristic: ", mod$error))
@@ -1098,8 +1142,19 @@ server <- function(input, output, session) {
     }
     run_round(1)
   }
-  observeEvent(input$run_discussion,  { req(length(rv$agents) > 0); start_run() }, ignoreInit = TRUE)
-  observeEvent(input$run_discussion2, { req(length(rv$agents) > 0); start_run() }, ignoreInit = TRUE)
+  # Every "Run deliberation" click is logged (from either button). A rejected
+  # click (no panel yet) is logged here; an accepted one is logged as the first
+  # line of the fresh run log inside start_run() (which clears the log per run).
+  handle_run_click <- function(source) {
+    if (length(rv$agents) == 0) {
+      log_event("WARN", paste0("Run deliberation clicked (", source, ") but no panel built yet -- aborted."))
+      showNotification("Build a panel first (Planner or Debate Setup).", type = "warning")
+      return(invisible())
+    }
+    start_run(source)
+  }
+  observeEvent(input$run_discussion,  handle_run_click("Debate Setup"), ignoreInit = TRUE)
+  observeEvent(input$run_discussion2, handle_run_click("Live Debate"),  ignoreInit = TRUE)
 
   # ---- Live views ---------------------------------------------------------
   output$live_header <- renderText({
@@ -1213,6 +1268,8 @@ server <- function(input, output, session) {
       log_event("ERROR", paste("Consensus failed:", res$error))
       showNotification(paste("Consensus failed:", res$error), type = "error")
     } else rv$consensus <- res$data
+    if (isTRUE(res$ok) && !is.null(res$provider) && !identical(res$provider, input$meta_provider))
+      log_event("WARN", paste0("Consensus failed over from '", input$meta_provider, "' to '", res$provider, "'."))
     log_usage("consensus", res$provider %||% input$meta_provider, res$model, res$usage, res$cached)
   })
   # Coordinator line shown under the heading of every exported PDF.
@@ -1356,12 +1413,15 @@ server <- function(input, output, session) {
       key_test(list(list(id = NA_character_, label = "", ok = FALSE, msg = "No active providers.")))
       return(invisible())
     }
+    log_event("INFO", paste0("Test keys clicked: pinging ", length(provs), " active provider(s)."))
     ping <- list(list(role = "user", content = "Reply with just: OK"))
     res <- withProgress(message = "Testing keys...", value = 0, {
       lapply(seq_along(provs), function(i) {
         p <- provs[i]; incProgress(1 / length(provs), detail = provider_by_id(cfg, p)$label)
         r <- llm_chat(cfg, p, ping, resolve_api_key(cfg, p, rv$ui_keys),
                       max_tokens = 768, temperature = 0, reasoning_effort = NULL, use_cache = FALSE)
+        log_event("API", paste0("key test | ", p, "/", r$model %||% "?", " | ",
+                                if (isTRUE(r$ok)) "OK" else paste0("FAILED: ", r$error %||% "unknown error")))
         list(id = p, label = provider_by_id(cfg, p)$label, ok = isTRUE(r$ok),
              msg = if (isTRUE(r$ok)) "working" else (r$error %||% "unknown error"))
       })

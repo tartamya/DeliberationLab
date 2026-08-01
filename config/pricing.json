@@ -1,5 +1,5 @@
 {
-  "_comment": "Token pricing in USD per 1,000,000 tokens. `input` = prompt tokens; `output` = completion tokens (for models that bill hidden reasoning tokens, those are already counted inside the provider's completion/output token total, so no separate line is needed). ANY model not listed under `models` uses `_default`. Local models are 0. IMPORTANT: THESE ARE PLACEHOLDER RATES -- replace each with the model's real published price. Costs shown in the app are ESTIMATES and only as accurate as this file.",
+  "_comment": "Token pricing in USD per 1,000,000 tokens. `input` = prompt tokens; `output` = completion tokens (for models that bill hidden reasoning tokens, those are already counted inside the provider's completion/output token total, so no separate line is needed). OPTIONAL `request` = a FLAT per-call fee in USD added on top of tokens (e.g. Perplexity's per-request web-search fee). ANY model not listed under `models` uses `_default`. Local models are 0. IMPORTANT: THESE ARE PLACEHOLDER RATES -- replace each with the model's real published price. Costs shown in the app are ESTIMATES and only as accurate as this file.",
   "_default": { "input": 1.0, "output": 3.0 },
   "models": {
     "gpt-5.5":                    { "input": 5.0,  "output": 15.0 },
@@ -22,6 +22,10 @@
     "mistral-large-latest":       { "input": 2.0,  "output": 6.0 },
     "mistral-small-latest":       { "input": 0.2,  "output": 0.6 },
     "open-mistral-nemo":          { "input": 0.15, "output": 0.15 },
+    "sonar":                      { "input": 1.0,  "output": 1.0,  "request": 0.005 },
+    "sonar-pro":                  { "input": 3.0,  "output": 15.0, "request": 0.006 },
+    "sonar-reasoning":            { "input": 1.0,  "output": 5.0,  "request": 0.005 },
+    "sonar-reasoning-pro":        { "input": 2.0,  "output": 8.0,  "request": 0.006 },
     "llama3.1":                   { "input": 0.0,  "output": 0.0 },
     "llama3.1:8b":                { "input": 0.0,  "output": 0.0 },
     "mistral:7b":                 { "input": 0.0,  "output": 0.0 },

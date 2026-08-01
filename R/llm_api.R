@@ -168,10 +168,38 @@ llm_count_tokens <- function(text) {
     } else paste0(" (finish_reason=", finish_reason %||% "unknown", ")")
     return(list(ok = FALSE, text = NULL, error = paste0(prov$label, " returned empty content", hint)))
   }
+  # Web-connected providers (Perplexity) return citations; append them to the
+  # turn as a "Sources:" list so they flow into the transcript, exports and the
+  # moderator's view. No-op for providers that return no citations.
+  cites <- .format_citations(res$raw)
+  if (nzchar(cites)) txt <- paste0(txt, cites)
   usage <- tryCatch(list(prompt_tokens = res$raw$usage$prompt_tokens %||% NA,
                          completion_tokens = res$raw$usage$completion_tokens %||% NA),
                     error = function(e) NULL)
   list(ok = TRUE, text = txt, error = NULL, raw = res$raw, usage = usage)
+}
+
+# Format a web-search provider's citations into a plain "Sources:" block, or ""
+# if there are none. Handles both Perplexity shapes: a top-level `citations`
+# array of URL strings, and/or a `search_results` array of {title, url}.
+.format_citations <- function(raw) {
+  cites <- tryCatch(raw$citations, error = function(e) NULL)
+  sr    <- tryCatch(raw$search_results, error = function(e) NULL)
+  urls <- character(0); titles <- character(0)
+  if (is.list(sr) && length(sr) > 0) {
+    urls   <- vapply(sr, function(s) as.character((s$url %||% "")[1]), character(1))
+    titles <- vapply(sr, function(s) as.character((s$title %||% "")[1]), character(1))
+  } else if (is.list(cites) && length(cites) > 0) {
+    urls <- vapply(cites, function(c) if (is.character(c)) c[1] else as.character((c$url %||% "")[1]), character(1))
+    titles <- rep("", length(urls))
+  }
+  keep <- nzchar(urls); urls <- urls[keep]; titles <- titles[keep]
+  if (length(urls) == 0) return("")
+  lines <- vapply(seq_along(urls), function(i) {
+    ttl <- if (length(titles) >= i && nzchar(titles[i])) paste0(titles[i], " -- ") else ""
+    paste0("[", i, "] ", ttl, urls[i])
+  }, character(1))
+  paste0("\n\nSources:\n", paste(lines, collapse = "\n"))
 }
 
 # ---- Handler: Anthropic (Claude) -------------------------------------------
@@ -349,7 +377,9 @@ provider_max_tokens <- function(cfg, provider_id, requested) {
 # ---- Cost estimation --------------------------------------------------------
 # Dollar cost of one call given a pricing config (see config/pricing.json),
 # the model, and token counts. Unknown/NA token counts contribute 0; a model
-# not in the table falls back to pricing$`_default`. Rates are per 1e6 tokens.
+# not in the table falls back to pricing$`_default`. Token rates are per 1e6
+# tokens; an OPTIONAL flat per-call `request` fee (e.g. Perplexity's web-search
+# fee) is added on top.
 llm_cost <- function(pricing, model, prompt_tokens, completion_tokens) {
   if (is.null(pricing)) return(NA_real_)
   rate <- NULL
@@ -357,5 +387,6 @@ llm_cost <- function(pricing, model, prompt_tokens, completion_tokens) {
   rate <- rate %||% pricing[["_default"]] %||% list(input = 0, output = 0)
   pt <- if (is.null(prompt_tokens) || is.na(prompt_tokens)) 0 else as.numeric(prompt_tokens)
   ct <- if (is.null(completion_tokens) || is.na(completion_tokens)) 0 else as.numeric(completion_tokens)
-  (pt * (rate$input %||% 0) + ct * (rate$output %||% 0)) / 1e6
+  req_fee <- suppressWarnings(as.numeric(rate$request %||% 0)); if (is.na(req_fee)) req_fee <- 0
+  (pt * (rate$input %||% 0) + ct * (rate$output %||% 0)) / 1e6 + req_fee
 }

@@ -165,6 +165,27 @@
       "reasoning_effort_levels": []
     },
     {
+      "id": "perplexity",
+      "label": "Perplexity (Sonar / web)",
+      "api_type": "openai_chat",
+      "endpoint": "https://api.perplexity.ai/chat/completions",
+      "_note": "OpenAI-compatible, WEB-CONNECTED. Returns live citations, which the openai_chat handler appends to the turn as a 'Sources:' list. Bills a per-REQUEST search fee ON TOP of tokens (see pricing.json `request`). Best used as a research / fact-check PARTICIPANT -- its online models are not tuned for strict JSON, so it is intentionally excluded from Planner/Moderator/Synthesis failover and from auto agent-failover. Key `perplexity` in config/secrets.R or env PERPLEXITY_API_KEY.",
+      "default_model": "sonar",
+      "models": [
+        "sonar",
+        "sonar-pro",
+        "sonar-reasoning",
+        "sonar-reasoning-pro"
+      ],
+      "max_tokens": 8192,
+      "context_window": 127072,
+      "thinking": false,
+      "needs_key": true,
+      "key_name": "perplexity",
+      "key_env": "PERPLEXITY_API_KEY",
+      "reasoning_effort_levels": []
+    },
+    {
       "id": "local",
       "label": "Local (Ollama / OpenAI-compatible)",
       "api_type": "openai_chat",

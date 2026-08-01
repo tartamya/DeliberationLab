@@ -148,6 +148,17 @@ build_turn_messages <- function(topic, history, kg_summary, agent, cfg,
   history_txt <- render_history(history, history_window)
   details_block <- if (!is.null(problem_details) && nzchar(trimws(problem_details)))
     paste0("\n\nProblem details / background:\n", trimws(problem_details)) else ""
+  # Self-activating "engage with evidence" directive: only injected when the
+  # recent discussion actually contains a cited Sources block -- specifically
+  # "Sources:" followed by a numbered "[1]" list, the exact shape produced for
+  # web citations. Matching the numbered list (not a bare "Sources:") avoids
+  # false positives from an agent using the word "sources" in prose. Costs
+  # nothing when absent. Forces agents to give sourced evidence due consideration.
+  evidence_directive <- if (grepl("Sources:\\s*\\[[0-9]", history_txt))
+    paste0("CITED EVIDENCE PRESENT: a participant has introduced sourced, cited evidence ",
+           "(see the 'Sources:' entries in the recent discussion). You MUST engage with it ",
+           "directly -- either accept it and build on it, or challenge it with a specific, ",
+           "reasoned objection. Do not ignore or talk past sourced facts.\n\n") else ""
   sys <- paste0(
     persona, "\n",
     if (nzchar(objective_fragment %||% "")) paste0(objective_fragment, "\n") else "",
@@ -156,6 +167,7 @@ build_turn_messages <- function(topic, history, kg_summary, agent, cfg,
     if (!is.null(current_confidence)) paste0("Current group confidence: ", current_confidence, "\n") else "",
     if (!is.null(current_consensus) && nzchar(current_consensus)) paste0("Provisional consensus so far: ", current_consensus, "\n") else "",
     "Knowledge graph so far (claims/evidence/questions): ", kg_summary, "\n\n",
+    evidence_directive,
     "INSTRUCTION FOR THIS TURN: ", phase_instruction, "\n\n",
     if (!is.null(language) && nzchar(language)) paste0("Respond in ", language, ".\n") else "",
     "Keep your response focused and under roughly ", max_tokens, " tokens. ",
