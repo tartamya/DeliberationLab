@@ -122,3 +122,61 @@ auto_stop_reached <- function(analytics, n_agents, threshold = 0.15) {
   recent <- utils::tail(analytics$novelty, 3 * max(1, n_agents))
   length(recent) > 0 && mean(recent, na.rm = TRUE) < threshold
 }
+
+# ---- Debate-quality scorecard -----------------------------------------------
+# Derives a PROCESS-quality read from the moderator's per-round extractions plus
+# the accumulated knowledge graph. Five 0-100 dimensions + an overall index and
+# label. Measures rigour (grounding, clash, structure, reasoning, idea work) --
+# NOT whether the conclusion is correct. $enough_data = FALSE when too sparse.
+debate_quality <- function(history, kg) {
+  mods <- Filter(Negate(is.null), lapply(history %||% list(), function(h) h$moderator))
+  # nrow() is NULL for anything that isn't a data.frame, so default to 0 -- a
+  # malformed kg must degrade to "not enough data", never crash the card.
+  nn <- (if (!is.null(kg)) nrow(kg$nodes) else 0) %||% 0
+  ne <- (if (!is.null(kg)) nrow(kg$edges) else 0) %||% 0
+  if (length(mods) == 0 || nn == 0 || !is.data.frame(kg$nodes))
+    return(list(enough_data = FALSE, n_rounds = length(mods)))
+
+  ntype <- function(t) sum(kg$nodes$type == t)
+  n_claim <- ntype("Claim"); n_evi <- ntype("Evidence"); n_counter <- ntype("Counterargument")
+  erel  <- function(r) if (ne > 0) sum(kg$edges$relation == r) else 0
+  e_contra <- erel("Contradicts") + erel("Rejects")
+  e_dev    <- erel("Extends") + erel("Refines")
+
+  tot   <- function(field) sum(vapply(mods, function(m) length(unlist(m[[field]])), numeric(1)))
+  n_disagree <- tot("disagreements"); n_fallacy <- tot("fallacies"); n_newhyp <- tot("new_hypotheses")
+  # Robust scalar-numeric: moderators may emit confidence as 70, "70" or "70%".
+  num1 <- function(x) suppressWarnings(as.numeric(gsub("[^0-9.]", "", as.character((x %||% NA)[1]))))
+  confs <- vapply(mods, function(m) num1(m$group_confidence_pct), numeric(1))
+  confs <- confs[!is.na(confs)]
+
+  clamp <- function(x) max(0, min(100, x))
+  band  <- function(s) if (s >= 67) "High" else if (s >= 34) "Medium" else "Low"
+
+  s_evi <- clamp(100 * (n_evi / max(1, n_claim)) / 0.6)                    # evidence per claim
+  claim_ids  <- kg$nodes$id[kg$nodes$type == "Claim"]
+  challenged <- if (e_contra > 0)
+    length(intersect(unique(kg$edges$to[kg$edges$relation %in% c("Contradicts", "Rejects")]), claim_ids)) else 0
+  s_eng <- clamp(100 * (challenged / max(1, n_claim)) / 0.5)               # claims challenged
+  if (s_eng == 0 && n_disagree > 0) s_eng <- 25                           # partial credit
+  s_con <- clamp(100 * (ne / max(1, nn)) / 1.0)                           # edges per node
+  s_rea <- clamp(100 * (1 - n_fallacy / max(1, n_claim + n_counter)))     # inverse fallacy rate
+  s_prod <- clamp(100 * ((n_newhyp + e_dev) / max(1, length(mods))) / 1.5) # new/refined ideas per round
+
+  scores <- c(s_evi, s_eng, s_con, s_rea, s_prod)
+  index  <- round(mean(scores))
+  label  <- if (index >= 70) "Robust" else if (index >= 45) "Moderate" else "Shallow"
+  conv <- if (length(confs) >= 2) {
+    d <- confs[length(confs)] - confs[1]
+    list(dir = if (d > 5) "converging" else if (d < -5) "diverging" else "stable",
+         first = confs[1], last = confs[length(confs)], delta = round(d))
+  } else NULL
+  dims <- list(
+    list(name = "Evidence grounding",   band = band(s_evi),  raw = sprintf("%d evidence / %d claims", n_evi, n_claim)),
+    list(name = "Critical engagement",  band = band(s_eng),  raw = sprintf("%d of %d claims challenged", challenged, n_claim)),
+    list(name = "Argument connectivity",band = band(s_con),  raw = sprintf("%.1f edges/node", ne / max(1, nn))),
+    list(name = "Reasoning integrity",  band = band(s_rea),  raw = sprintf("%d fallacies flagged", n_fallacy)),
+    list(name = "Idea productivity",    band = band(s_prod), raw = sprintf("%d new + %d refined", n_newhyp, e_dev)))
+  list(enough_data = TRUE, index = index, label = label, dims = dims,
+       convergence = conv, n_rounds = length(mods))
+}

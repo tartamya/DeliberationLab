@@ -97,7 +97,66 @@ plan_to_text <- function(plan) {
 # Render a consensus object as readable markdown-ish plain text (for the
 # clipboard and the PDF export). If `plan` is supplied it is appended as a
 # combined "consensus + plan" report.
-consensus_to_text <- function(con, topic = "", plan = NULL) {
+# ---- Debate-quality scorecard renderers (from debate_quality()) --------------
+# One-line, app-specific remediation tip per dimension -- shown only for a Low band.
+.quality_tips <- c(
+  "Evidence grounding"    = "seat a Perplexity (web) agent and set agents' evidence preference to empirical.",
+  "Critical engagement"   = "raise Skepticism dials or add a devil's-advocate role; try Oxford mode.",
+  "Argument connectivity" = "add rounds and a stronger moderator provider; have agents engage prior points.",
+  "Reasoning integrity"   = "apply stricter critical rules, use stronger models, and lower Creativity dials.",
+  "Idea productivity"     = "raise Creativity dials, add rounds, and activate more discussion dimensions.")
+.tip_for <- function(name) { t <- .quality_tips[name]; if (is.na(t)) NULL else unname(t) }
+
+# Plain-text block for the text PDF / clipboard.
+quality_text <- function(q) {
+  if (is.null(q) || !isTRUE(q$enough_data))
+    return("DEBATE QUALITY\n  Not enough moderated structure to score.\n")
+  lines <- c("DEBATE QUALITY", sprintf("  Overall: %s (%d/100)", q$label, q$index))
+  for (d in q$dims) {
+    lines <- c(lines, sprintf("  - %s: %s (%s)", d$name, d$band, d$raw))
+    tip <- if (identical(d$band, "Low")) .tip_for(d$name) else NULL
+    if (!is.null(tip)) lines <- c(lines, sprintf("      -> To improve: %s", tip))
+  }
+  if (!is.null(q$convergence))
+    lines <- c(lines, sprintf("  Confidence: %s (%d%% -> %d%%)",
+                              q$convergence$dir, round(q$convergence$first), round(q$convergence$last)))
+  lines <- c(lines, sprintf("  (Process rigour over %d moderated round%s; not a verdict on correctness.)",
+                            q$n_rounds, if (q$n_rounds != 1) "s" else ""))
+  paste(lines, collapse = "\n")
+}
+# htmltools card for the consensus HTML/PDF and the live app card (same markup).
+quality_html <- function(q) {
+  card <- function(...) htmltools::tags$div(class = "info-card", style = "border-left-color:#6C5CE7;", ...)
+  if (is.null(q) || !isTRUE(q$enough_data))
+    return(card(htmltools::tags$h5("Debate Quality"),
+                htmltools::tags$p(htmltools::tags$em("Not enough moderated structure to score yet."))))
+  lc   <- switch(q$label, Robust = "#1E8449", Moderate = "#B9770E", Shallow = "#C0392B", "#5B6B7A")
+  bcol <- function(b) switch(b, High = "#1E8449", Medium = "#B9770E", Low = "#C0392B", "#5B6B7A")
+  rows <- lapply(q$dims, function(d) {
+    tip <- if (identical(d$band, "Low")) .tip_for(d$name) else NULL
+    tip_el <- if (!is.null(tip)) htmltools::tags$div(
+      style = "font-size:0.82em; color:#C0392B; margin:2px 0 0 1.1em;",
+      htmltools::tags$em(paste0("→ To improve: ", tip))) else NULL
+    htmltools::tags$li(
+      htmltools::tags$b(d$name), " — ",
+      htmltools::tags$span(style = paste0("color:", bcol(d$band), "; font-weight:600;"), d$band),
+      htmltools::tags$span(class = "text-muted", paste0("  (", d$raw, ")")),
+      tip_el)
+  })
+  conv <- if (!is.null(q$convergence)) htmltools::tags$p(
+    htmltools::tags$b("Confidence: "),
+    sprintf("%s (%d%% → %d%%)", q$convergence$dir, round(q$convergence$first), round(q$convergence$last))) else NULL
+  card(
+    htmltools::tags$h5("Debate Quality"),
+    htmltools::tags$p(style = paste0("font-size:1.15em; color:", lc, "; font-weight:700; margin:2px 0;"),
+                      sprintf("%s — %d / 100", q$label, q$index)),
+    htmltools::tags$ul(rows), conv,
+    htmltools::tags$p(class = "text-muted", style = "font-size:0.85em;",
+      sprintf("Process rigour over %d moderated round%s; not a verdict on correctness.",
+              q$n_rounds, if (q$n_rounds != 1) "s" else "")))
+}
+
+consensus_to_text <- function(con, topic = "", plan = NULL, quality = NULL) {
   if (is.null(con)) return("(no consensus generated yet)")
   bullets <- function(x) { x <- unlist(x); if (length(x) == 0) "  (none)" else paste0("  - ", x, collapse = "\n") }
   dm <- con$decision_matrix
@@ -108,6 +167,7 @@ consensus_to_text <- function(con, topic = "", plan = NULL) {
   consensus_body <- paste0(
     "CONSENSUS SYNTHESIS\n",
     if (nzchar(topic)) paste0("Topic: ", topic, "\n") else "",
+    if (!is.null(quality)) paste0("\n", quality_text(quality), "\n") else "",
     "\n## Consensus\n", con$consensus %||% "",
     "\n\n## Minority Report\n", con$minority_report %||% "",
     "\n\n## Confidence Interval\n", con$confidence_interval %||% "",
@@ -208,6 +268,9 @@ text_to_pdf <- function(text, file, title = NULL, subtitle = NULL) {
   .info-card { border:1px solid #DFE1E6; border-left:4px solid #2C5F8A; border-radius:6px; padding:10px 12px; margin-bottom:10px; background:#FFFFFF; page-break-inside:avoid; }
   .info-card h5 { margin:0 0 6px 0; font-size:17px; }
   .info-card p { margin:2px 0; white-space:pre-wrap; }
+  /* bslib supplies .text-muted in the app; the report has no Bootstrap, so
+     define it here or the quality card's detail text loses its hierarchy. */
+  .text-muted { color:#6B778C; }
   ul { margin:4px 0 4px 0; padding-left:20px; }
   table.dm { border-collapse:collapse; width:100%; font-size:13px; margin-top:4px; }
   table.dm th, table.dm td { border:1px solid #CBD2D9; padding:4px 6px; text-align:left; vertical-align:top; }
@@ -324,7 +387,7 @@ debate_html <- function(topic, history, meta = NULL, moderator = FALSE) {
 
 # Full HTML document for the consensus report (mirrors consensus_view). `meta`
 # = coordinator line under the heading; `plan` (optional) appends the plan.
-consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL) {
+consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL, quality = NULL) {
   if (is.null(con)) return(.html_doc(paste0("Consensus: ", topic), "<p>No consensus generated.</p>", meta = meta))
   card <- function(title, ..., accent = "#2C5F8A")
     htmltools::tags$div(class = "info-card", style = paste0("border-left-color:", accent, ";"),
@@ -341,6 +404,7 @@ consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL) 
         htmltools::tags$td(r$option %||% ""), htmltools::tags$td(r$pros %||% ""),
         htmltools::tags$td(r$cons %||% ""), htmltools::tags$td(r$verdict %||% ""))))) else NULL
   body <- htmltools::tagList(
+    if (!is.null(quality)) quality_html(quality),
     card("Consensus", htmltools::tags$p(con$consensus %||% ""), accent = "#1E8449"),
     card("Minority report", htmltools::tags$p(con$minority_report %||% ""), accent = "#C0392B"),
     card("Confidence interval", htmltools::tags$p(con$confidence_interval %||% "")),

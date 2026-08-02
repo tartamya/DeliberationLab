@@ -326,6 +326,7 @@ ui <- page_navbar(
       card(card_header("Run summary"),
            card_body(uiOutput("setup_summary"),
                      uiOutput("ram_status"),
+                     uiOutput("local_server_status"),
                      br(),
                      actionButton("run_discussion2", "Run Deliberation", class = "btn-primary"),
                      hr(),
@@ -417,6 +418,7 @@ ui <- page_navbar(
                       "Include the deliberation plan in the consensus report (PDF & clipboard)", value = FALSE),
         checkboxInput("include_kg_consensus",
                       "Append the knowledge graph as a landscape page (PDF only; adds a few seconds)", value = FALSE),
+        uiOutput("debate_quality_card"),
         uiOutput("consensus_view")
       )
     )
@@ -942,6 +944,37 @@ server <- function(input, output, session) {
                v$tag, tags$span(style = "font-weight:400; color:inherit;", paste0(" — ", v$msg))))
   })
 
+  # Quick reachability check for the local (Ollama) server: any HTTP response on
+  # its host:port = up; connection refused/timeout = down. Bounded to ~2s.
+  local_server_up <- function() {
+    prov <- provider_by_id(cfg, "local")
+    if (is.null(prov) || is.null(prov$endpoint)) return(NA)
+    base <- sub("(https?://[^/]+).*", "\\1", prov$endpoint)   # http://localhost:11434
+    resp <- tryCatch(
+      httr2::req_perform(httr2::req_error(httr2::req_timeout(httr2::request(base), 2),
+                                          is_error = function(r) FALSE)),
+      error = function(e) NULL)
+    !is.null(resp)
+  }
+  # Live "is the local model server running?" badge. Refreshes every 8s.
+  output$local_server_status <- renderUI({
+    invalidateLater(8000, session)
+    up <- tryCatch(local_server_up(), error = function(e) NA)
+    if (is.na(up)) return(NULL)
+    active <- "local" %in% (input$active_providers %||% character(0))
+    if (isTRUE(up)) {
+      tags$div(style = "margin:4px 0; font-size:0.92em;",
+        tags$span(style = "color:#2E7D32; font-weight:700;", "● "),
+        tags$b("Local server (Ollama): up"),
+        if (!active) tags$span(class = "text-muted", " — tick “Local” in Active providers to use it"))
+    } else {
+      tags$div(style = "margin:4px 0; font-size:0.92em;",
+        tags$span(style = "color:#C0392B; font-weight:700;", "● "),
+        tags$b(style = "color:#C0392B;", "Local server (Ollama): down"),
+        tags$span(class = "text-muted", " — start Ollama to use local models"))
+    }
+  })
+
   # ---- Run log (Debate Setup tab) ----------------------------------------
   observeEvent(input$clear_run_log, { rv$run_log <- list(); showNotification("Run log cleared.", type = "message") })
   output$run_log_summary <- renderUI({
@@ -1367,11 +1400,15 @@ server <- function(input, output, session) {
   }
   # Plan to fold into the consensus report, when the checkbox is ticked.
   consensus_plan <- function() if (isTRUE(input$include_plan_in_consensus)) rv$plan else NULL
+  # Debate-quality scorecard from the moderator/KG data (NULL until there's a run).
+  dq <- reactive(if (length(rv$history) == 0) NULL else debate_quality(rv$history, rv$kg))
+  # Live card on the Consensus tab (same markup used in the report).
+  output$debate_quality_card <- renderUI({ q <- dq(); if (is.null(q)) return(NULL); quality_html(q) })
 
   observeEvent(input$copy_consensus, {
     if (is.null(rv$consensus)) { showNotification("No consensus to copy yet.", type = "warning"); return() }
     session$sendCustomMessage("clipboard_copy",
-                              consensus_to_text(rv$consensus, input$topic, plan = consensus_plan()))
+                              consensus_to_text(rv$consensus, input$topic, plan = consensus_plan(), quality = dq()))
     showNotification("Consensus copied to clipboard.", type = "message")
   })
   output$dl_consensus_pdf <- downloadHandler(
@@ -1387,16 +1424,17 @@ server <- function(input, output, session) {
       # (skipped while a run is active, or if the graph is empty / render fails).
       kg_png <- NULL
       if (isTRUE(input$include_kg_consensus) && !isTRUE(rv$running) &&
-          !is.null(rv$kg) && nrow(rv$kg$nodes) > 0) {
+          !is.null(rv$kg) && isTRUE(nrow(rv$kg$nodes) > 0)) {
         kg_png <- tryCatch(kg_to_png(rv$kg, tempfile(fileext = ".png")), error = function(e) NULL)
         if (is.null(kg_png)) showNotification("Could not render the knowledge graph; PDF made without it.",
                                               type = "warning", duration = 5)
       }
+      quality <- dq()
       ok <- if (isTRUE(rv$running)) FALSE else
         tryCatch({ html_to_pdf(consensus_html(input$topic, rv$consensus, meta = meta, plan = plan,
-                                              kg_png = kg_png), file); TRUE },
+                                              kg_png = kg_png, quality = quality), file); TRUE },
                  error = function(e) FALSE)
-      if (!ok) text_to_pdf(consensus_to_text(rv$consensus, input$topic, plan = plan), file,
+      if (!ok) text_to_pdf(consensus_to_text(rv$consensus, input$topic, plan = plan, quality = quality), file,
                            title = paste("Consensus:", input$topic), subtitle = meta)
       if (!is.null(kg_png)) unlink(kg_png)
     })

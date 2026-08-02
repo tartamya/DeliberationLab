@@ -71,35 +71,40 @@ render_kg_visnetwork <- function(kg) {
     visNetwork::visPhysics(stabilization = TRUE)
 }
 
-# Render the knowledge graph to a static PNG for embedding in a PDF. Uses a
-# PRINT-FRIENDLY variant of the on-screen visNetwork (no interactive dropdown,
-# larger fonts, deterministic layout) captured headlessly via webshot2. Returns
-# the file path, or NULL if the graph is empty or rendering fails -- callers then
-# simply omit the graph so a report never breaks over it.
-kg_to_png <- function(kg, file, width = 1500, height = 1000, delay = 3.5) {
-  if (is.null(kg) || nrow(kg$nodes) == 0) return(NULL)
-  if (!all(vapply(c("visNetwork", "htmlwidgets", "webshot2"),
-                  function(p) requireNamespace(p, quietly = TRUE), logical(1)))) return(NULL)
-  vis_nodes <- data.frame(
-    id = kg$nodes$id, label = kg$nodes$label,
-    color = vapply(kg$nodes$type, kg_node_color, character(1)),
-    shape = "dot", size = 22, stringsAsFactors = FALSE)
-  vis_edges <- if (nrow(kg$edges) == 0) data.frame(from = character(), to = character()) else data.frame(
-    from = kg$edges$from, to = kg$edges$to, label = kg$edges$relation, arrows = "to",
-    color = ifelse(kg$edges$relation %in% c("Contradicts", "Rejects"), "#FF5630", "#97A0AF"),
-    stringsAsFactors = FALSE)
-  w <- visNetwork::visNetwork(vis_nodes, vis_edges, width = "100%", height = "100%") |>
-    visNetwork::visNodes(font = list(size = 22)) |>
-    visNetwork::visEdges(font = list(size = 17)) |>
-    visNetwork::visLayout(randomSeed = 42) |>
-    visNetwork::visPhysics(stabilization = TRUE)
-  tmp <- tempfile(fileext = ".html")
+# Render the knowledge graph to a static PNG for embedding in a PDF. Uses igraph
+# + base graphics (a PNG device) rather than a headless browser, so it works
+# reliably from inside a Shiny download handler (webshot2/chromote fought the
+# app's own event loop and could silently fail). Nodes are coloured by type,
+# edges labelled by relation (red = Contradicts / Rejects). Returns the file
+# path, or NULL if the graph is empty or rendering fails -- callers then simply
+# omit the graph so a report never breaks over it.
+kg_to_png <- function(kg, file, width = 1500, height = 1000) {
+  if (is.null(kg) || !is.data.frame(kg$nodes) || nrow(kg$nodes) == 0) return(NULL)
+  if (!requireNamespace("igraph", quietly = TRUE)) return(NULL)
   ok <- tryCatch({
-    htmlwidgets::saveWidget(w, tmp, selfcontained = FALSE)
-    webshot2::webshot(tmp, file = file, delay = delay, vwidth = width, vheight = height)
+    # Drop dangling edges (referencing a node not in the graph) so one bad edge
+    # from the moderator can't blow up the whole render.
+    ed <- if (nrow(kg$edges) > 0)
+      kg$edges[kg$edges$from %in% kg$nodes$id & kg$edges$to %in% kg$nodes$id, c("from", "to", "relation"), drop = FALSE]
+      else data.frame(from = character(), to = character(), relation = character())
+    g <- igraph::graph_from_data_frame(
+      d = ed, vertices = kg$nodes[, c("id", "label", "type", "round")], directed = TRUE)
+    vcol <- vapply(igraph::vertex_attr(g, "type"), kg_node_color, character(1))
+    er   <- igraph::edge_attr(g, "relation")
+    ecol <- ifelse(er %in% c("Contradicts", "Rejects"), "#FF5630", "#97A0AF")
+    grDevices::png(file, width = width, height = height, res = 120)
+    tryCatch({
+      old <- graphics::par(mar = c(0.5, 0.5, 0.5, 0.5)); on.exit(graphics::par(old), add = TRUE)
+      set.seed(42)
+      igraph::plot.igraph(g, layout = igraph::layout_with_fr(g),
+        vertex.color = vcol, vertex.frame.color = "white", vertex.size = 16,
+        vertex.label = igraph::vertex_attr(g, "label"), vertex.label.color = "black",
+        vertex.label.cex = 1.0, vertex.label.family = "sans", vertex.label.dist = 1.4,
+        edge.label = er, edge.label.cex = 0.85, edge.label.color = "#333333",
+        edge.label.family = "sans", edge.color = ecol, edge.arrow.size = 0.5, edge.width = 1.6)
+    }, finally = grDevices::dev.off())
     TRUE
   }, error = function(e) FALSE)
-  unlink(tmp)
   if (isTRUE(ok) && file.exists(file) && file.info(file)$size > 2000) file else NULL
 }
 
