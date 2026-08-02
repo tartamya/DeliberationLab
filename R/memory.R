@@ -27,7 +27,13 @@ update_agent_memory <- function(agents, turn) {
 
 # ---- Session save / load ----------------------------------------------------
 sessions_dir <- function() {
-  d <- file.path(getwd(), "sessions")
+  # Anchor to the app's own directory (APP_DIR, set in app.R), NOT getwd():
+  # getwd() varies by how the app is launched, so saved debates would land in --
+  # or be read from -- the wrong folder and silently fail to appear in the load
+  # list. Fall back to getwd() only when APP_DIR isn't defined (standalone/tests).
+  base <- tryCatch(if (exists("APP_DIR", inherits = TRUE)) get("APP_DIR", inherits = TRUE) else getwd(),
+                   error = function(e) getwd())
+  d <- file.path(base, "sessions")
   if (!dir.exists(d)) dir.create(d, recursive = TRUE)
   d
 }
