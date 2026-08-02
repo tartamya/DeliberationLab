@@ -11,6 +11,32 @@
 
 `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
 
+# Read API keys from a plain-text `keys.txt` file: one `provider=key` per line,
+# blank lines and `#` comments ignored, values trimmed. Returns a named list
+# (empty if the file is missing). Keeping keys in a plain text file (in a hidden,
+# git-ignored folder) is simpler and safer than an .R source file.
+read_keys_file <- function(path) {
+  if (!file.exists(path)) return(list())
+  lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
+  # Strip a leading UTF-8 BOM (Notepad often adds one) so the FIRST provider's
+  # name isn't silently corrupted -- handle both the decoded char and the
+  # raw-bytes (mojibake) form.
+  lines <- sub("^﻿", "", lines)
+  lines <- sub("^ï»¿", "", lines)
+  lines <- trimws(lines)
+  lines <- lines[nzchar(lines) & !startsWith(lines, "#")]
+  keys <- list()
+  for (ln in lines) {
+    eq <- regexpr("=", ln, fixed = TRUE)
+    if (eq > 0) {
+      k <- trimws(substr(ln, 1, eq - 1))
+      v <- trimws(substr(ln, eq + 1, nchar(ln)))
+      if (nzchar(k)) keys[[k]] <- v
+    }
+  }
+  keys
+}
+
 # Read one JSON file into a nested list (simplifyVector = FALSE keeps a
 # predictable list-of-lists shape regardless of how "rectangular" the data is,
 # which avoids jsonlite silently turning some arrays into data.frames and

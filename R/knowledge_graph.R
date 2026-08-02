@@ -71,6 +71,38 @@ render_kg_visnetwork <- function(kg) {
     visNetwork::visPhysics(stabilization = TRUE)
 }
 
+# Render the knowledge graph to a static PNG for embedding in a PDF. Uses a
+# PRINT-FRIENDLY variant of the on-screen visNetwork (no interactive dropdown,
+# larger fonts, deterministic layout) captured headlessly via webshot2. Returns
+# the file path, or NULL if the graph is empty or rendering fails -- callers then
+# simply omit the graph so a report never breaks over it.
+kg_to_png <- function(kg, file, width = 1500, height = 1000, delay = 3.5) {
+  if (is.null(kg) || nrow(kg$nodes) == 0) return(NULL)
+  if (!all(vapply(c("visNetwork", "htmlwidgets", "webshot2"),
+                  function(p) requireNamespace(p, quietly = TRUE), logical(1)))) return(NULL)
+  vis_nodes <- data.frame(
+    id = kg$nodes$id, label = kg$nodes$label,
+    color = vapply(kg$nodes$type, kg_node_color, character(1)),
+    shape = "dot", size = 22, stringsAsFactors = FALSE)
+  vis_edges <- if (nrow(kg$edges) == 0) data.frame(from = character(), to = character()) else data.frame(
+    from = kg$edges$from, to = kg$edges$to, label = kg$edges$relation, arrows = "to",
+    color = ifelse(kg$edges$relation %in% c("Contradicts", "Rejects"), "#FF5630", "#97A0AF"),
+    stringsAsFactors = FALSE)
+  w <- visNetwork::visNetwork(vis_nodes, vis_edges, width = "100%", height = "100%") |>
+    visNetwork::visNodes(font = list(size = 22)) |>
+    visNetwork::visEdges(font = list(size = 17)) |>
+    visNetwork::visLayout(randomSeed = 42) |>
+    visNetwork::visPhysics(stabilization = TRUE)
+  tmp <- tempfile(fileext = ".html")
+  ok <- tryCatch({
+    htmlwidgets::saveWidget(w, tmp, selfcontained = FALSE)
+    webshot2::webshot(tmp, file = file, delay = delay, vwidth = width, vheight = height)
+    TRUE
+  }, error = function(e) FALSE)
+  unlink(tmp)
+  if (isTRUE(ok) && file.exists(file) && file.info(file)$size > 2000) file else NULL
+}
+
 kg_to_igraph <- function(kg) {
   if (nrow(kg$nodes) == 0) return(igraph::make_empty_graph())
   igraph::graph_from_data_frame(

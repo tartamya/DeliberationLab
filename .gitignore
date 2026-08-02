@@ -12,3 +12,9 @@ sessions/
 .Ruserdata
 Rplots.pdf
 *.rds
+
+# API keys (plain text, hidden folder) -- never commit
+.secrets/
+
+# Windows shortcuts (machine-specific)
+*.lnk

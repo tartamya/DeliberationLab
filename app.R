@@ -50,14 +50,17 @@ for (f in c("config_loader.R", "llm_api.R", "prompt_templates.R", "planner.R",
 # ---- Load configuration + secrets ------------------------------------------
 CONFIG <- load_config(CONFIG_DIR)
 
-# API_KEYS: prefer config/secrets.R (git-ignored), fall back to the template.
-# Must be sourced into this environment (local = TRUE) so resolve_api_key(),
-# defined just below, actually reads the populated list rather than an empty
-# shadow copy. (This was a real bug: with local = FALSE the keys landed in
-# globalenv while the empty `API_KEYS <- list()` shadowed them here, so no
-# provider key ever resolved.)
+# API_KEYS resolution order (first hit wins):
+#   1. .secrets/keys.txt        -- plain `provider=key` lines, hidden + git-ignored
+#   2. config/secrets.R         -- legacy R file (still supported as a fallback)
+#   3. config/secrets.example.R -- blank template (so the app still runs keyless)
+# resolve_api_key() (below) additionally lets an environment variable or a key
+# typed in the Settings tab override these at runtime.
 API_KEYS <- list()
-if (file.exists(file.path(CONFIG_DIR, "secrets.R"))) {
+keys_txt <- file.path(APP_DIR, ".secrets", "keys.txt")
+if (file.exists(keys_txt)) {
+  API_KEYS <- read_keys_file(keys_txt)
+} else if (file.exists(file.path(CONFIG_DIR, "secrets.R"))) {
   source(file.path(CONFIG_DIR, "secrets.R"), local = TRUE)
 } else if (file.exists(file.path(CONFIG_DIR, "secrets.example.R"))) {
   source(file.path(CONFIG_DIR, "secrets.example.R"), local = TRUE)
@@ -322,6 +325,7 @@ ui <- page_navbar(
              uiOutput("model_selectors"))),
       card(card_header("Run summary"),
            card_body(uiOutput("setup_summary"),
+                     uiOutput("ram_status"),
                      br(),
                      actionButton("run_discussion2", "Run Deliberation", class = "btn-primary"),
                      hr(),
@@ -411,6 +415,8 @@ ui <- page_navbar(
         ),
         checkboxInput("include_plan_in_consensus",
                       "Include the deliberation plan in the consensus report (PDF & clipboard)", value = FALSE),
+        checkboxInput("include_kg_consensus",
+                      "Append the knowledge graph as a landscape page (PDF only; adds a few seconds)", value = FALSE),
         uiOutput("consensus_view")
       )
     )
@@ -903,6 +909,39 @@ server <- function(input, output, session) {
     )
   })
 
+  # System RAM read (fast, no subprocess) via the ps package; NA if unavailable.
+  system_ram <- function() {
+    if (requireNamespace("ps", quietly = TRUE)) {
+      m <- tryCatch(ps::ps_system_memory(), error = function(e) NULL)
+      if (!is.null(m)) return(list(avail = m$avail / 1024^3, total = m$total / 1024^3))
+    }
+    list(avail = NA_real_, total = NA_real_)
+  }
+  # Live RAM gauge with an adequacy verdict (local 7-8B models need ~5 GB each,
+  # so headroom matters). Refreshes every 5s.
+  output$ram_status <- renderUI({
+    invalidateLater(5000, session)
+    r <- system_ram()
+    if (is.na(r$avail))
+      return(tags$p(class = "text-muted", style = "margin:6px 0;", "System RAM: unavailable."))
+    a <- r$avail; tot <- r$total
+    v <- if (a >= 6)
+           list(col = "#2E7D32", tag = "Adequate",
+                msg = "comfortable for a local 7-8B model plus the app, or any cloud debate.")
+         else if (a >= 3)
+           list(col = "#B9770E", tag = "Tight",
+                msg = "cloud debates are fine; a local 7-8B model may be slow -- close heavy apps for local use.")
+         else
+           list(col = "#C0392B", tag = "Low",
+                msg = "risk of slowdowns/instability -- close other apps, especially before running LOCAL models.")
+    tags$div(style = paste0("border-left:4px solid ", v$col,
+                            "; padding:6px 10px; margin:6px 0; background:rgba(0,0,0,0.03); border-radius:3px;"),
+      tags$div(tags$b("Available RAM: "), sprintf("%.1f GB", a),
+               tags$span(class = "text-muted", sprintf(" of %.1f GB", tot))),
+      tags$div(style = paste0("color:", v$col, "; font-weight:600; margin-top:2px;"),
+               v$tag, tags$span(style = "font-weight:400; color:inherit;", paste0(" — ", v$msg))))
+  })
+
   # ---- Run log (Debate Setup tab) ----------------------------------------
   observeEvent(input$clear_run_log, { rv$run_log <- list(); showNotification("Run log cleared.", type = "message") })
   output$run_log_summary <- renderUI({
@@ -1342,12 +1381,24 @@ server <- function(input, output, session) {
       # PDF if chromote/Chrome is unavailable so the download never fails.
       # chromote pumps the later loop, so skip it while a deliberation is
       # running (it could re-enter the round loop mid-download).
+      ensure_writable(file)
       meta <- coord_meta(); plan <- consensus_plan()
+      # Optional landscape knowledge-graph page: render the graph to a static PNG
+      # (skipped while a run is active, or if the graph is empty / render fails).
+      kg_png <- NULL
+      if (isTRUE(input$include_kg_consensus) && !isTRUE(rv$running) &&
+          !is.null(rv$kg) && nrow(rv$kg$nodes) > 0) {
+        kg_png <- tryCatch(kg_to_png(rv$kg, tempfile(fileext = ".png")), error = function(e) NULL)
+        if (is.null(kg_png)) showNotification("Could not render the knowledge graph; PDF made without it.",
+                                              type = "warning", duration = 5)
+      }
       ok <- if (isTRUE(rv$running)) FALSE else
-        tryCatch({ html_to_pdf(consensus_html(input$topic, rv$consensus, meta = meta, plan = plan), file); TRUE },
+        tryCatch({ html_to_pdf(consensus_html(input$topic, rv$consensus, meta = meta, plan = plan,
+                                              kg_png = kg_png), file); TRUE },
                  error = function(e) FALSE)
       if (!ok) text_to_pdf(consensus_to_text(rv$consensus, input$topic, plan = plan), file,
                            title = paste("Consensus:", input$topic), subtitle = meta)
+      if (!is.null(kg_png)) unlink(kg_png)
     })
   output$consensus_view <- renderUI({
     con <- rv$consensus

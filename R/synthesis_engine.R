@@ -214,6 +214,12 @@ text_to_pdf <- function(text, file, title = NULL, subtitle = NULL) {
   table.dm th { background:#EEF2F6; }
   * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   @page { margin:14mm; }
+  /* Dedicated LANDSCAPE page for the knowledge-graph image (rest stays portrait). */
+  @page kg { size: A4 landscape; margin: 10mm; }
+  .kg-landscape { page: kg; page-break-before: always; text-align: center; }
+  .kg-landscape h2 { border-top:none; margin:0 0 6px 0; padding-top:0; }
+  .kg-landscape img { max-width:100%; max-height:172mm; height:auto; }
+  .kg-landscape .cap { color:#5B6B7A; font-size:12px; margin-top:6px; }
 "
 
 # `meta` (optional) renders as a line right under the <h1> heading -- used for
@@ -318,7 +324,7 @@ debate_html <- function(topic, history, meta = NULL, moderator = FALSE) {
 
 # Full HTML document for the consensus report (mirrors consensus_view). `meta`
 # = coordinator line under the heading; `plan` (optional) appends the plan.
-consensus_html <- function(topic, con, meta = NULL, plan = NULL) {
+consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL) {
   if (is.null(con)) return(.html_doc(paste0("Consensus: ", topic), "<p>No consensus generated.</p>", meta = meta))
   card <- function(title, ..., accent = "#2C5F8A")
     htmltools::tags$div(class = "info-card", style = paste0("border-left-color:", accent, ";"),
@@ -344,12 +350,23 @@ consensus_html <- function(topic, con, meta = NULL, plan = NULL) {
     if (!is.null(dm_ui)) card("Decision matrix", dm_ui)
   )
   consensus_cards <- as.character(body)
+  # Optional final LANDSCAPE page with a static knowledge-graph image, embedded
+  # as base64 so the (self-contained) HTML prints without external files.
+  kg_section <- ""
+  if (!is.null(kg_png) && file.exists(kg_png)) {
+    b64 <- jsonlite::base64_enc(readBin(kg_png, "raw", file.info(kg_png)$size))
+    kg_section <- paste0(
+      "<div class='kg-landscape'><h2>Knowledge Graph</h2>",
+      "<img src='data:image/png;base64,", b64, "' alt='Knowledge graph'/>",
+      "<div class='cap'>Nodes coloured by type (Claim / Evidence / Question / Assumption / ",
+      "Counterargument); edges labelled by relation; red edges = Contradicts / Rejects.</div></div>")
+  }
   if (!is.null(plan)) {
     # Combined report: plan FIRST, then the consensus, under a broader title.
     .html_doc(paste0("Deliberation Report: ", topic),
-              paste0(plan_html(plan), "<h2>Consensus</h2>", consensus_cards), meta = meta)
+              paste0(plan_html(plan), "<h2>Consensus</h2>", consensus_cards, kg_section), meta = meta)
   } else {
-    .html_doc(paste0("Consensus: ", topic), consensus_cards, meta = meta)
+    .html_doc(paste0("Consensus: ", topic), paste0(consensus_cards, kg_section), meta = meta)
   }
 }
 
