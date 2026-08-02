@@ -88,6 +88,47 @@ safe_api_post <- function(url, headers, body, timeout_sec = 90, max_retries = 3)
 llm_cache_clear <- function() rm(list = ls(.LLM_CACHE), envir = .LLM_CACHE)
 llm_cache_size  <- function() length(ls(.LLM_CACHE))
 
+# ---- Free local (Ollama) RAM ------------------------------------------------
+# The `local` provider's models run in a SEPARATE Ollama process that R cannot
+# garbage-collect; each loaded model can hold several GB. When a debate uses no
+# local model, we can ask Ollama to unload its models to free that RAM.
+#
+# ollama_base_url(): derive the server root from the local provider endpoint
+# (strip the OpenAI-compat "/v1/..." path) -- config-driven, nothing hardcoded.
+ollama_base_url <- function(cfg) {
+  prov <- provider_by_id(cfg, "local")
+  ep <- prov$endpoint %||% ""
+  if (!nzchar(ep)) return(NULL)
+  sub("/v1/.*$", "", ep)   # e.g. http://localhost:11434/v1/chat/completions -> http://localhost:11434
+}
+
+# ollama_unload_all(): query the loaded models (/api/ps) and unload each by
+# issuing a keep_alive=0 request (/api/generate). Best-effort: every call is
+# wrapped so a missing/offline Ollama (connection refused) fails fast and
+# silently. Returns the names it asked to unload (character(0) if none/failed).
+ollama_unload_all <- function(base_url, timeout_sec = 5) {
+  if (is.null(base_url) || !nzchar(base_url)) return(character(0))
+  loaded <- tryCatch({
+    req <- httr2::request(paste0(base_url, "/api/ps"))
+    req <- httr2::req_timeout(req, timeout_sec)
+    req <- httr2::req_error(req, is_error = function(r) FALSE)
+    parsed <- httr2::resp_body_json(httr2::req_perform(req), simplifyVector = FALSE)
+    vapply(parsed$models %||% list(),
+           function(m) as.character(m$name %||% m$model %||% ""), character(1))
+  }, error = function(e) character(0))
+  loaded <- loaded[nzchar(loaded)]
+  for (m in loaded) {
+    tryCatch({
+      req <- httr2::request(paste0(base_url, "/api/generate"))
+      req <- httr2::req_body_json(req, list(model = m, keep_alive = 0))
+      req <- httr2::req_timeout(req, timeout_sec)
+      req <- httr2::req_error(req, is_error = function(r) FALSE)
+      httr2::req_perform(req)
+    }, error = function(e) NULL)
+  }
+  loaded
+}
+
 # ---- Rough token counter ----------------------------------------------------
 # Provider-agnostic heuristic (~4 chars/token). Good enough for budgeting and
 # the UI; not a substitute for a real tokenizer.

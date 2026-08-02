@@ -37,7 +37,14 @@ load_config <- function(config_dir) {
     # Pricing is optional -- if the file is missing, costs fall back to a zero
     # default so the app still runs (just reports $0).
     pricing          = tryCatch(.read_json(file.path(config_dir, "pricing.json")),
-                                error = function(e) list(`_default` = list(input = 0, output = 0), models = list()))
+                                error = function(e) list(`_default` = list(input = 0, output = 0), models = list())),
+    # Critical rules: an editable, plain-text ruleset (config/critical_rules.txt)
+    # seeded into the UI and injected -- as authoritative, persona-overriding
+    # constraints -- into every agent turn and the final consensus. Missing file
+    # -> empty string (feature simply inactive).
+    critical_rules   = tryCatch(paste(readLines(file.path(config_dir, "critical_rules.txt"),
+                                                warn = FALSE, encoding = "UTF-8"), collapse = "\n"),
+                                error = function(e) "")
   )
   cfg
 }

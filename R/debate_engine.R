@@ -46,14 +46,14 @@ run_turn <- function(cfg, agent, phase_instruction, topic, history, kg,
                      round_number, api_key, max_tokens, temperature,
                      reasoning_effort, current_confidence = NULL,
                      current_consensus = NULL, language = NULL, use_cache = FALSE,
-                     problem_details = NULL) {
+                     problem_details = NULL, critical_rules = NULL) {
   msgs <- build_turn_messages(
     topic = topic, history = history, kg_summary = kg_summary_text(kg), agent = agent, cfg = cfg,
     phase_instruction = phase_instruction, mode_name = mode_name,
     objective_fragment = objective_fragment, round_number = round_number,
     max_tokens = max_tokens, dimensions_txt = dimensions_txt,
     current_confidence = current_confidence, current_consensus = current_consensus,
-    language = language, problem_details = problem_details)
+    language = language, problem_details = problem_details, critical_rules = critical_rules)
   res <- llm_chat(cfg, agent$provider, msgs, api_key, model = agent$model %||% NULL,
                   max_tokens = max_tokens, temperature = temperature,
                   reasoning_effort = reasoning_effort, use_cache = use_cache)

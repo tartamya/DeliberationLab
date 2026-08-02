@@ -360,6 +360,42 @@
       "evidence": "Real-world Data",
       "communication": "",
       "bias": ""
+    },
+    {
+      "name": "Islamic Scholar",
+      "category": "Custom",
+      "expertise": "Islamic Scholar",
+      "reasoning": "Faith-based reasoning combined with comparative religious understanding, drawing from Quranic ethics and Islamic jurisprudence",
+      "evidence": "Scriptural sources, Islamic jurisprudence, historical Islamic societies",
+      "communication": "",
+      "bias": ""
+    },
+    {
+      "name": "Buddhist Scholar",
+      "category": "Custom",
+      "expertise": "Buddhist Scholar",
+      "reasoning": "Analytical meditation-based reasoning, focusing on compassion and mindfulness as universal moral principles",
+      "evidence": "Buddhist sutras, meditation research, secular mindfulness studies",
+      "communication": "",
+      "bias": ""
+    },
+    {
+      "name": "Sociologist",
+      "category": "Custom",
+      "expertise": "Sociologist",
+      "reasoning": "Empirical social science reasoning using cross-cultural data and social theory",
+      "evidence": "Cross-cultural studies, sociological research, statistical data",
+      "communication": "",
+      "bias": ""
+    },
+    {
+      "name": "Psychologist",
+      "category": "Custom",
+      "expertise": "Psychologist",
+      "reasoning": "Scientific psychological reasoning using empirical research on human development and behavior",
+      "evidence": "Psychological studies, developmental psychology research, behavioral data",
+      "communication": "",
+      "bias": ""
     }
   ]
 }

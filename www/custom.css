@@ -37,3 +37,20 @@ pre.preview-box {
 }
 .run-log-line { white-space: pre-wrap; word-break: break-word; padding: 1px 0; border-bottom: 1px solid #F0F2F4; }
 .run-log-time { color: #98A2B3; }
+
+/* Bold labels -- FIELD/input labels (the group label, not individual checkbox/
+   radio options) and SECTION headers. `.shiny-input-container > label` is the
+   direct field label; option labels are nested deeper (.checkbox label) and are
+   deliberately left unbolded. !important overrides the bslib theme's own label
+   weight regardless of stylesheet load order. */
+.shiny-input-container > label,
+.shiny-input-container label.control-label,
+.control-label,
+.form-label {
+  font-weight: 700 !important;
+}
+/* Section headers (sidebar h5 "Run settings", card headers, etc.) */
+h3, h4, h5, h6,
+.card-header, .bslib-card .card-header {
+  font-weight: 700 !important;
+}

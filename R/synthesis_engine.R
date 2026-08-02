@@ -12,9 +12,15 @@
 
 # Structured final synthesis. reasoning_effort = NULL (structured-JSON call).
 consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key, use_cache = FALSE,
-                             fallbacks = list()) {
+                             fallbacks = list(), critical_rules = NULL) {
+  rules_block <- if (!is.null(critical_rules) && nzchar(trimws(critical_rules)))
+    paste0("CRITICAL RULES you MUST obey when synthesizing (these override any pressure to pick a ",
+           "winner): ", trimws(critical_rules),
+           "\nIn particular: if reliable evidence is insufficient, the verdict is 'uncertain' -- ",
+           "say so plainly rather than forcing a decision; report uncertainty explicitly.\n\n") else ""
   prompt <- paste0(
     "You are synthesizing the FINAL outcome of a multi-agent deliberation on: \"", topic, "\".\n",
+    rules_block,
     "Full transcript follows:\n\n", full_history_txt, "\n\n",
     "Respond with ONLY a JSON object (no prose, no fences):\n",
     '{"consensus": string, "minority_report": string, "open_questions": [string], ',
@@ -115,9 +121,23 @@ consensus_to_text <- function(con, topic = "", plan = NULL) {
 }
 
 # Dependency-free PDF: render wrapped monospaced text across A4 pages using the
+# Belt-and-suspenders against aggressive temp cleaners: recreate R's session
+# tempdir if it was deleted mid-run, and ensure the directory for `path` exists,
+# so temp/PDF writes don't fail with "cannot open the connection". Returns path.
+ensure_writable <- function(path = NULL) {
+  td <- tempdir()
+  if (!dir.exists(td)) dir.create(td, recursive = TRUE, showWarnings = FALSE)
+  if (!is.null(path)) {
+    d <- dirname(path)
+    if (nzchar(d) && !dir.exists(d)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  }
+  invisible(path)
+}
+
 # base graphics device (no pandoc/LaTeX needed). Uses cairo_pdf when available
 # (better UTF-8 handling), falling back to pdf().
 text_to_pdf <- function(text, file, title = NULL, subtitle = NULL) {
+  ensure_writable(file)
   raw <- unlist(strsplit(paste(text, collapse = "\n"), "\n", fixed = TRUE))
   # Lines already within the wrap width are kept VERBATIM (spaces preserved),
   # so pre-formatted content -- e.g. the ASCII decision-matrix table -- stays
@@ -337,6 +357,7 @@ consensus_html <- function(topic, con, meta = NULL, plan = NULL) {
 # Errors (no chromote / no Chrome / timeout) propagate so callers can fall back.
 html_to_pdf <- function(html, file) {
   if (!requireNamespace("chromote", quietly = TRUE)) stop("chromote not available")
+  ensure_writable(file)          # recreate tempdir/target dir if a cleaner nuked it
   tmp <- tempfile(fileext = ".html")
   writeLines(enc2utf8(html), tmp, useBytes = TRUE)
   on.exit(unlink(tmp), add = TRUE)

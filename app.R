@@ -96,7 +96,7 @@ THINKING_MIN_TOKENS <- 1000
 # always has a sensible default selection.
 DEFAULT_ACTIVE <- local({
   av   <- available_providers(CONFIG)
-  pref <- setdiff(av, "local")
+  pref <- setdiff(av, c("local", "gpt4all"))   # local servers: opt-in (may be off)
   # openai/claude (premium) and perplexity (per-request web-search fee) are left
   # unchecked by default -- opt in when wanted.
   pref_no_premium <- setdiff(pref, c("openai", "claude", "perplexity"))
@@ -222,6 +222,17 @@ ui <- page_navbar(
                         placeholder = paste("Paste the full case, background, constraints, data...",
                                             "The Planner and every agent see this as context.",
                                             "(Longer text = more tokens per turn.)")),
+          tags$label(class = "control-label", "Apply critical rules"),
+          checkboxInput("apply_rules_debate", "During deliberation (every agent turn)", value = TRUE),
+          checkboxInput("apply_rules_consensus", "At consensus (final verdict)", value = TRUE),
+          textAreaInput("critical_rules", "Critical rules (the ruleset applied above)",
+                        value = CONFIG$critical_rules %||% "", rows = 10, width = "100%",
+                        placeholder = paste("Epistemic ground rules injected into every turn as",
+                                            "authoritative, overriding persuasion. Type freely --",
+                                            "one rule per line. Edit, add, or clear as needed.")),
+          actionButton("reset_critical_rules", "Reset to default rules",
+                       class = "btn-sm btn-outline-secondary"),
+          br(), br(),
           textInput("coordinator", "Debate coordinator", value = "",
                     placeholder = "Name shown under the heading of every exported PDF"),
           numericInput("planner_n_hint", "Target number of agents (hint)", value = 4, min = 2, max = 20),
@@ -494,8 +505,8 @@ server <- function(input, output, session) {
     # calls (local is slow; perplexity's web models aren't tuned for strict JSON
     # and bill a per-request search fee).
     ranked <- c(intersect(pri, keyed),
-                setdiff(intersect(provider_ids(cfg), keyed), c(pri, "local", "perplexity")))
-    ranked <- setdiff(ranked, c(primary, "local", "perplexity"))
+                setdiff(intersect(provider_ids(cfg), keyed), c(pri, "local", "gpt4all", "perplexity")))
+    ranked <- setdiff(ranked, c(primary, "local", "gpt4all", "perplexity"))
     lapply(ranked, function(p) list(provider = p, key = resolve_api_key(cfg, p, rv$ui_keys)))
   }
 
@@ -571,6 +582,12 @@ server <- function(input, output, session) {
   # =========================================================================
   # PLANNER
   # =========================================================================
+  # Restore the shipped default ruleset (config/critical_rules.txt) after free edits.
+  observeEvent(input$reset_critical_rules, {
+    updateTextAreaInput(session, "critical_rules", value = CONFIG$critical_rules %||% "")
+    showNotification("Critical rules reset to the default set.", type = "message")
+  })
+
   observeEvent(input$run_planner, {
     req(nzchar(input$topic))
     key <- meta_key()
@@ -937,7 +954,8 @@ server <- function(input, output, session) {
                         round_number = input$preview_round, max_tokens = input$max_tokens,
                         dimensions_txt = dimensions_txt(),
                         language = if (nzchar(input$language)) input$language else NULL,
-                        problem_details = input$problem_details)
+                        problem_details = input$problem_details,
+                        critical_rules = if (!identical(input$apply_rules_debate, FALSE)) input$critical_rules else NULL)
   })
   output$preview_system <- renderText(preview_msgs()[[1]]$content)
   output$preview_user   <- renderText(preview_msgs()[[2]]$content)
@@ -954,6 +972,20 @@ server <- function(input, output, session) {
     }
     rv$run_log <- list()   # fresh diagnostics log for this run attempt
     log_event("INFO", paste0("Run deliberation clicked (", source, ")."))
+    # ---- Free memory before a (potentially heavy) run -----------------------
+    # Reclaim R's own heap and, when caching is off, drop the response cache
+    # (which can hold every prior reply's full text). NOTE: gc() frees only
+    # memory held by THIS R process -- it cannot reclaim RAM used by other
+    # processes such as Ollama's loaded models. Wrapped so a failure here can
+    # never block the run.
+    tryCatch({
+      if (!isTRUE(input$use_cache)) llm_cache_clear()
+      g0 <- gc(full = TRUE)  # full collection across generations
+      freed_mb <- tryCatch(round(sum(as.numeric(g0[, "(Mb)"]))), error = function(e) NA_real_)
+      log_event("INFO", paste0("Reclaimed R memory before run (gc",
+                               if (!isTRUE(input$use_cache)) " + cache purge" else "",
+                               "); R heap now ~", freed_mb, " Mb."))
+    }, error = function(e) log_event("WARN", paste("Pre-run gc skipped:", conditionMessage(e))))
     # Right after loading a saved debate, the active-providers checkbox update
     # may not have round-tripped from the client yet -- union in the loaded
     # debate's providers (one-shot) so a re-run never fails with a spurious
@@ -981,11 +1013,26 @@ server <- function(input, output, session) {
                              ", ", length(active_agents), " agents, ", input$n_rounds, " rounds."))
     topic <- input$topic; mode_name <- input$mode; moderator_name <- input$moderator
     pdetails <- input$problem_details
+    # Critical rules apply to agent turns unless "During deliberation" is
+    # explicitly unticked. (Default-ON: an unset/NULL value must still count as
+    # ON, so we test against FALSE rather than isTRUE, which would treat NULL as off.)
+    crules <- if (!identical(input$apply_rules_debate, FALSE)) input$critical_rules else ""
     n_rounds <- input$n_rounds; mode_cfg <- cfg_find(cfg$debate_modes, mode_name)
     obj_fragment <- (cfg_find(cfg$objectives, input$objective)$prompt_fragment) %||% ""
     dims_txt <- dimensions_txt()
     meta_prov <- input$meta_provider; meta_k <- meta_key()
     meta_fb <- meta_fallbacks(meta_prov)   # meta-call provider failover list
+    # Free local (Ollama) RAM when THIS debate uses no local model -- neither any
+    # participant nor the meta (planner/moderator/consensus) provider. Skipped
+    # entirely if a local model is in play, so it never unloads a model we need.
+    uses_local <- identical(meta_prov, "local") ||
+      any(vapply(active_agents, function(a) identical(a$provider, "local"), logical(1)))
+    if (!uses_local) {
+      unloaded <- ollama_unload_all(ollama_base_url(cfg))
+      if (length(unloaded) > 0)
+        log_event("INFO", paste0("Freed RAM: unloaded ", length(unloaded),
+                                 " idle Ollama model(s): ", paste(unloaded, collapse = ", "), "."))
+    }
     max_tokens <- input$max_tokens; temperature <- input$temperature
     reff <- reasoning_effort(); lang <- if (nzchar(input$language)) input$language else NULL
     use_cache <- input$use_cache
@@ -1010,8 +1057,8 @@ server <- function(input, output, session) {
     realloc_priority <- c("deepseek", "mistral", "celeris", "claude", "openai")
     cloud_ranked <- {
       pref  <- intersect(realloc_priority, keyed_pool)              # preferred, in order
-      other <- setdiff(intersect(provider_ids(cfg), keyed_pool),    # remaining keyed, config
-                       c(realloc_priority, "local", "perplexity"))  # order; no local/perplexity
+      other <- setdiff(intersect(provider_ids(cfg), keyed_pool),        # remaining keyed, config
+                       c(realloc_priority, "local", "gpt4all", "perplexity"))  # order; no local servers/perplexity
       c(pref, other)
     }
     local_models <- unlist(provider_by_id(cfg, "local")$models %||% list())
@@ -1079,7 +1126,7 @@ server <- function(input, output, session) {
                                  paste0(round(mean(rv$analytics$confidence, na.rm = TRUE)), "%") else NULL,
                                current_consensus = if (!is.null(rv$consensus)) rv$consensus$consensus else NULL,
                                language = lang, use_cache = use_cache,
-                               problem_details = pdetails)
+                               problem_details = pdetails, critical_rules = crules)
               if (isTRUE(turn$ok)) break
               run_failed_keys <<- union(run_failed_keys, slot_key(a$provider, a$model))
               rp <- pick_replacement(a$provider, a$model, run_failed_keys, used_slot_keys())
@@ -1237,10 +1284,11 @@ server <- function(input, output, session) {
   })
   output$dl_graphml <- downloadHandler(
     filename = function() "knowledge_graph.graphml",
-    content = function(file) export_graphml(rv$kg, file))
+    content = function(file) { ensure_writable(file); export_graphml(rv$kg, file) })
   output$dl_kg_csv <- downloadHandler(
     filename = function() "knowledge_graph.csv",
     content = function(file) {
+      ensure_writable(file)
       nodes_out <- if (nrow(rv$kg$nodes) > 0) data.frame(record_type = "NODE", id = rv$kg$nodes$id,
         label = rv$kg$nodes$label, type_or_relation = rv$kg$nodes$type, from = NA, to = NA,
         round = rv$kg$nodes$round, stringsAsFactors = FALSE) else NULL
@@ -1262,7 +1310,8 @@ server <- function(input, output, session) {
     withProgress(message = "Synthesizing consensus...", value = 0.5, {
       res <- consensus_engine(cfg, input$topic, export_txt(rv$history), input$meta_provider, meta_key(),
                               use_cache = input$use_cache,
-                              fallbacks = meta_fallbacks(input$meta_provider))
+                              fallbacks = meta_fallbacks(input$meta_provider),
+                              critical_rules = if (!identical(input$apply_rules_consensus, FALSE)) input$critical_rules else NULL)
     })
     if (!isTRUE(res$ok)) {
       log_event("ERROR", paste("Consensus failed:", res$error))
@@ -1347,7 +1396,7 @@ server <- function(input, output, session) {
       fmt <- cfg_find(cfg$output_formats, input$export_format)
       paste0("deliberation_", gsub("[^A-Za-z0-9]", "_", input$export_format), ".", fmt$extension %||% "txt")
     },
-    content = function(file) writeLines(rv$formatted_output, file))
+    content = function(file) { ensure_writable(file); writeLines(rv$formatted_output, file) })
   # Moderator-comments block for text/markdown transcripts, when requested.
   mod_comments <- function() if (isTRUE(input$include_moderator_in_transcript)) moderator_comments_text(rv$history) else ""
   incl_mod     <- function() isTRUE(input$include_moderator_in_transcript)
@@ -1372,14 +1421,18 @@ server <- function(input, output, session) {
         text_to_pdf(body_txt, file, title = paste("Deliberation:", input$topic), subtitle = meta)
       }
     })
-  output$dl_txt <- downloadHandler("deliberation.txt", function(file)
-    writeLines(paste0(export_txt(rv$history), mod_comments()), file))
-  output$dl_md  <- downloadHandler("deliberation.md",  function(file)
-    writeLines(paste0(export_markdown(input$topic, rv$history), mod_comments()), file))
-  output$dl_json <- downloadHandler("deliberation.json", function(file)
-    writeLines(as.character(export_json(input$topic, rv$history, rv$kg, rv$analytics, rv$plan, rv$consensus)), file))
-  output$dl_csv <- downloadHandler("deliberation.csv", function(file)
-    write.csv(export_csv_history(rv$history), file, row.names = FALSE))
+  output$dl_txt <- downloadHandler("deliberation.txt", function(file) {
+    ensure_writable(file)
+    writeLines(paste0(export_txt(rv$history), mod_comments()), file) })
+  output$dl_md  <- downloadHandler("deliberation.md",  function(file) {
+    ensure_writable(file)
+    writeLines(paste0(export_markdown(input$topic, rv$history), mod_comments()), file) })
+  output$dl_json <- downloadHandler("deliberation.json", function(file) {
+    ensure_writable(file)
+    writeLines(as.character(export_json(input$topic, rv$history, rv$kg, rv$analytics, rv$plan, rv$consensus)), file) })
+  output$dl_csv <- downloadHandler("deliberation.csv", function(file) {
+    ensure_writable(file)
+    write.csv(export_csv_history(rv$history), file, row.names = FALSE) })
 
   # =========================================================================
   # SETTINGS: keys, cache, sessions
@@ -1489,6 +1542,8 @@ server <- function(input, output, session) {
     state <- list(
       # ---- results ----
       topic = input$topic, problem_details = input$problem_details,
+      critical_rules = input$critical_rules,
+      apply_rules_debate = input$apply_rules_debate, apply_rules_consensus = input$apply_rules_consensus,
       plan = rv$plan, agents = rv$agents, history = rv$history,
       kg = rv$kg, analytics = rv$analytics, consensus = rv$consensus,
       usage_log = rv$usage_log, formatted_output = rv$formatted_output,
@@ -1530,6 +1585,12 @@ server <- function(input, output, session) {
     rv$formatted_output <- state$formatted_output %||% ""
     updateTextAreaInput(session, "topic", value = state$topic %||% "")
     updateTextAreaInput(session, "problem_details", value = state$problem_details %||% "")
+    if (!is.null(state$critical_rules))
+      updateTextAreaInput(session, "critical_rules", value = state$critical_rules)
+    if (!is.null(state$apply_rules_debate))
+      updateCheckboxInput(session, "apply_rules_debate", value = isTRUE(state$apply_rules_debate))
+    if (!is.null(state$apply_rules_consensus))
+      updateCheckboxInput(session, "apply_rules_consensus", value = isTRUE(state$apply_rules_consensus))
     # ---- restore configuration (update the actual UI controls) ----
     cf <- state$config %||% list()
     # The active set the loaded debate needs = its saved active_providers PLUS

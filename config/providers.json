@@ -186,6 +186,28 @@
       "reasoning_effort_levels": []
     },
     {
+      "id": "gpt4all",
+      "label": "GPT4All (local)",
+      "api_type": "openai_chat",
+      "endpoint": "http://localhost:4891/v1/chat/completions",
+      "_note": "GPT4All's OpenAI-compatible Local API Server. Requires the GPT4All app open with 'Enable Local API Server' turned on (Settings). Serves ONE model at a time (switches on request), so it is excluded from auto agent/meta failover like the Ollama `local` provider. Model names below must match GPT4All's /v1/models ids -- verify once the server is running. R1-distill models emit <think> blocks that can clutter transcripts. No key needed.",
+      "default_model": "Llama-3.2-3B-Instruct",
+      "models": [
+        "Llama-3.2-3B-Instruct",
+        "DeepSeek-R1-Distill-Qwen-7B",
+        "DeepSeek-R1-Distill-Llama-8B",
+        "qwen2.5-coder-7b-instruct",
+        "mpt-7b-chat"
+      ],
+      "max_tokens": 4096,
+      "timeout_sec": 600,
+      "thinking": false,
+      "needs_key": false,
+      "key_name": "gpt4all",
+      "key_env": "",
+      "reasoning_effort_levels": []
+    },
+    {
       "id": "local",
       "label": "Local (Ollama / OpenAI-compatible)",
       "api_type": "openai_chat",

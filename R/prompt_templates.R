@@ -143,9 +143,16 @@ build_turn_messages <- function(topic, history, kg_summary, agent, cfg,
                                 round_number, max_tokens,
                                 dimensions_txt = "", current_confidence = NULL,
                                 current_consensus = NULL, history_window = 12,
-                                language = NULL, problem_details = NULL) {
+                                language = NULL, problem_details = NULL,
+                                critical_rules = NULL) {
   persona <- build_persona(agent, cfg)
   history_txt <- render_history(history, history_window)
+  # Critical rules bind EVERY agent regardless of persona. Placed at the very
+  # top of the system prompt (before the persona's rhetorical framing) and
+  # marked as overriding, so accuracy/uncertainty beats winning the argument.
+  rules_block <- if (!is.null(critical_rules) && nzchar(trimws(critical_rules)))
+    paste0("CRITICAL RULES -- these OVERRIDE persuasion and any rhetorical aim of your persona; ",
+           "follow them exactly even when they weaken your side:\n", trimws(critical_rules), "\n\n") else ""
   details_block <- if (!is.null(problem_details) && nzchar(trimws(problem_details)))
     paste0("\n\nProblem details / background:\n", trimws(problem_details)) else ""
   # Self-activating "engage with evidence" directive: only injected when the
@@ -160,6 +167,7 @@ build_turn_messages <- function(topic, history, kg_summary, agent, cfg,
            "directly -- either accept it and build on it, or challenge it with a specific, ",
            "reasoned objection. Do not ignore or talk past sourced facts.\n\n") else ""
   sys <- paste0(
+    rules_block,
     persona, "\n",
     if (nzchar(objective_fragment %||% "")) paste0(objective_fragment, "\n") else "",
     "Discussion mode: ", mode_name, ". Round: ", round_number, ".\n",
@@ -194,6 +202,19 @@ build_planner_messages <- function(topic, cfg, n_agents_hint = NULL, problem_det
     "- Debate modes: ", vocab(cfg$debate_modes), "\n",
     "- Moderator types: ", vocab(cfg$moderators), "\n",
     "- Evidence types: ", vocab(cfg$evidence_types), "\n\n",
+    "HONOUR EXPLICIT DESIGN INSTRUCTIONS: the user's problem details may contain explicit ",
+    "instructions about how to configure the deliberation -- e.g. the number of experts/agents, ",
+    "specific expert roles or personas to include, which discussion dimensions to use or ",
+    "emphasise, the debate mode, the moderator style, or specific debate questions. Treat every ",
+    "such explicit instruction as a REQUIREMENT and reflect it EXACTLY in your JSON plan:\n",
+    "- If a number of agents/experts is given, output EXACTLY that many entries in `experts` and ",
+    "set `recommended_num_agents` to the same number.\n",
+    "- If specific roles/personas are named, use them verbatim as the `experts` (in the given order).\n",
+    "- If specific dimensions are named, put exactly those in `dimensions` (highest importance first).\n",
+    "- If a debate mode / moderator is named, set `recommended_mode` / `recommended_moderator` to it.\n",
+    "- If specific questions are given, use them as `debate_questions`.\n",
+    "Follow the user's instruction even if it differs from the lists above (add new items as needed). ",
+    "Design freely ONLY where the details are silent.\n\n",
     "Respond with ONLY a single JSON object (no prose, no markdown fences) with this schema:\n",
     '{"dimensions": [{"name": string, "importance": number, "why": string}], ',
     '"experts": [{"role": string, "reasoning": string, "evidence": string, "why": string}], ',
@@ -202,10 +223,14 @@ build_planner_messages <- function(topic, cfg, n_agents_hint = NULL, problem_det
     '"expected_agreements": [string], "expected_controversies": [string], ',
     '"required_evidence": [string], "recommended_num_agents": number, "rationale": string}'
   )
+  # Labelled as instructions (not just background) so the model reads any panel/
+  # dimension/mode directives inside it as requirements, per the system prompt.
   details_block <- if (!is.null(problem_details) && nzchar(trimws(problem_details)))
-    paste0("\n\nProblem details / background:\n", trimws(problem_details), "\n") else ""
+    paste0("\n\nProblem details / user instructions (honour any explicit design directives here):\n",
+           trimws(problem_details), "\n") else ""
   user <- paste0("Topic: ", topic, "\n", details_block,
-                 if (!is.null(n_agents_hint)) paste0("Aim for about ", n_agents_hint, " agents.\n") else "",
+                 if (!is.null(n_agents_hint)) paste0("If the details above do NOT specify a count, aim for about ",
+                                                     n_agents_hint, " agents.\n") else "",
                  "Design the deliberation now.")
   list(list(role = "system", content = sys), list(role = "user", content = user))
 }
