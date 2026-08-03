@@ -680,8 +680,17 @@ server <- function(input, output, session) {
     rv$loaded_providers <- NULL
   }, ignoreNULL = FALSE)
 
-  # Selecting a role prefills expertise/reasoning/evidence from config.
+  # Loading an existing agent into the form also changes ag_role, which re-fires
+  # the prefill observer below on the next flush -- after the row observer has
+  # written the agent's own values. Left unguarded it overwrites the agent's
+  # customized expertise and dials with the role's defaults. The row observer
+  # parks the role name here; the prefill skips that one firing.
+  skip_role_prefill <- reactiveVal(NULL)
+
+  # Selecting a role prefills expertise/reasoning/evidence and any dial presets.
   observeEvent(input$ag_role, {
+    if (identical(skip_role_prefill(), input$ag_role)) { skip_role_prefill(NULL); return() }
+    skip_role_prefill(NULL)
     r <- cfg_find(cfg$roles, input$ag_role)
     if (!is.null(r)) {
       updateTextInput(session, "ag_expertise", value = r$expertise %||% "")
@@ -689,10 +698,17 @@ server <- function(input, output, session) {
         updateSelectInput(session, "ag_reasoning", selected = r$reasoning)
       if ((r$evidence %||% "") %in% cfg_names(cfg$evidence_types))
         updateSelectInput(session, "ag_evidence", selected = r$evidence)
+      # Optional per-role dial presets (Red-Team arrives sceptical, not neutral).
+      for (d in list(c("ag_creativity", "creativity"), c("ag_skepticism", "skepticism"),
+                     c("ag_risk", "risk_tolerance"))) {
+        v <- suppressWarnings(as.numeric(r[[d[2]]] %||% NA))
+        if (!is.na(v)) updateSliderInput(session, d[1], value = v)
+      }
     }
   })
 
   reset_agent_form <- function() {
+    skip_role_prefill(NULL)
     updateTextInput(session, "ag_name", value = "New Agent")
     updateSelectInput(session, "ag_role", selected = "Custom")
     updateTextInput(session, "ag_expertise", value = "")
@@ -708,8 +724,9 @@ server <- function(input, output, session) {
       a <- rv$agents[[sel]]
       editing_idx(sel)
       updateTextInput(session, "ag_name", value = a$name)
-      updateSelectInput(session, "ag_role",
-                        selected = if (a$role %in% cfg_names(cfg$roles)) a$role else "Custom")
+      role_sel <- if (a$role %in% cfg_names(cfg$roles)) a$role else "Custom"
+      skip_role_prefill(role_sel)   # keep the agent's own values, not the role defaults
+      updateSelectInput(session, "ag_role", selected = role_sel)
       updateTextInput(session, "ag_expertise", value = a$expertise)
       if (a$reasoning %in% cfg_names(cfg$reasoning_styles)) updateSelectInput(session, "ag_reasoning", selected = a$reasoning)
       if (a$evidence %in% cfg_names(cfg$evidence_types)) updateSelectInput(session, "ag_evidence", selected = a$evidence)
@@ -733,6 +750,7 @@ server <- function(input, output, session) {
                    expertise = input$ag_expertise, reasoning = input$ag_reasoning, evidence = input$ag_evidence,
                    communication = { r <- cfg_find(cfg$roles, input$ag_role); if (is.null(r)) "" else r$communication %||% "" },
                    bias = { r <- cfg_find(cfg$roles, input$ag_role); if (is.null(r)) "" else r$bias %||% "" },
+                   constraints = { r <- cfg_find(cfg$roles, input$ag_role); if (is.null(r)) "" else r$constraints %||% "" },
                    goal = input$ag_goal, creativity = input$ag_creativity, skepticism = input$ag_skepticism,
                    risk_tolerance = input$ag_risk, confidence = input$ag_confidence,
                    prompt = input$ag_prompt, provider = input$ag_provider)

@@ -116,10 +116,18 @@ build_persona <- function(agent, cfg) {
     if (nzchar(agent$category %||% "")) paste0(" (", agent$category, ")") else "", ".\n",
     "Domain expertise: ", agent$expertise, ".\n",
     if (nzchar(agent$goal %||% "")) paste0("Your goal: ", agent$goal, ".\n") else "",
-    "Reasoning style -- ", agent$reasoning, ": ", reasoning_fragment, "\n",
+    # Custom roles may put free-text prose in `reasoning` rather than a configured
+    # style name; emit it plainly instead of a style name followed by an empty fragment.
+    if (nzchar(reasoning_fragment)) paste0("Reasoning style -- ", agent$reasoning, ": ", reasoning_fragment, "\n")
+    else paste0("Reasoning style: ", agent$reasoning, ".\n"),
     "You prefer evidence of type: ", agent$evidence, ". Cite that kind of evidence when you can.\n",
     if (nzchar(agent$communication %||% "")) paste0("Communication style: ", agent$communication, ".\n") else "",
     if (nzchar(agent$bias %||% "")) paste0("Acknowledge this leaning honestly when relevant: ", agent$bias, ".\n") else "",
+    # Prohibitions last and emphatic: for epistemic roles the boundary IS the
+    # role -- Skeptic/Falsifier and Red-Team differ mainly in what each may not do.
+    if (nzchar(agent$constraints %||% ""))
+      paste0("STAY IN ROLE -- you must NOT: ", agent$constraints,
+             "\nThis boundary defines your contribution; another participant covers what lies outside it.\n") else "",
     "Personality dials (0-1): creativity=", agent$creativity,
     ", skepticism=", agent$skepticism, ", risk_tolerance=", agent$risk_tolerance, ".\n",
     if (nzchar(agent$prompt %||% "")) paste0("Additional instructions: ", agent$prompt, "\n") else ""

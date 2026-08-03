@@ -16,12 +16,15 @@ new_agent <- function(cfg, name, role = "", category = "", expertise = "",
                       reasoning = "Pragmatist", evidence = "Expert Consensus",
                       communication = "", bias = "", goal = "",
                       creativity = 0.5, skepticism = 0.5, risk_tolerance = 0.5,
-                      confidence = 0.5, prompt = "", provider = NULL) {
+                      confidence = 0.5, prompt = "", provider = NULL,
+                      constraints = "") {
   provider <- provider %||% (if (length(cfg$providers)) cfg$providers[[1]]$id else "openai")
   list(
     id = digest::digest(paste(name, role, Sys.time(), runif(1)), algo = "crc32"),
     name = name, role = role, category = category, expertise = expertise,
     reasoning = reasoning, evidence = evidence, communication = communication, bias = bias,
+    # what this role must NOT do -- emitted as a hard prohibition in the persona.
+    constraints = constraints,
     goal = goal, creativity = creativity, skepticism = skepticism,
     risk_tolerance = risk_tolerance, confidence = confidence, prompt = prompt,
     provider = provider,
@@ -50,9 +53,14 @@ agent_from_role <- function(cfg, role_name, provider = NULL, overrides = list())
     reasoning = if (nzchar(overrides$reasoning %||% "")) overrides$reasoning else (base$reasoning %||% "Pragmatist"),
     evidence  = if (nzchar(overrides$evidence  %||% "")) overrides$evidence  else (base$evidence  %||% "Expert Consensus"),
     communication = base$communication %||% "", bias = base$bias %||% "",
+    constraints = base$constraints %||% "",
     goal = overrides$goal %||% "",
-    creativity = overrides$creativity %||% 0.5, skepticism = overrides$skepticism %||% 0.5,
-    risk_tolerance = overrides$risk_tolerance %||% 0.5, confidence = overrides$confidence %||% 0.5,
+    # Dials fall back to the role's presets before the 0.5 default, so a role
+    # like Red-Team arrives already sceptical rather than neutral.
+    creativity = overrides$creativity %||% base$creativity %||% 0.5,
+    skepticism = overrides$skepticism %||% base$skepticism %||% 0.5,
+    risk_tolerance = overrides$risk_tolerance %||% base$risk_tolerance %||% 0.5,
+    confidence = overrides$confidence %||% 0.5,
     prompt = overrides$prompt %||% "",
     provider = provider
   )
