@@ -278,10 +278,12 @@ ui <- page_navbar(
           helpText("Select a row to edit it (button becomes Save). Click it again to deselect.")
         )
       ),
-      div(
       card(
         card_header("Current roster"),
+        # fillable=FALSE for the same reason as the library card below: a tall
+        # roster table must push the buttons down, not flex over them.
         card_body(
+          fillable = FALSE,
           DTOutput("agents_table"),
           br(),
           div(
@@ -299,24 +301,27 @@ ui <- page_navbar(
                    "(saves expertise/reasoning/evidence/communication/bias, any role constraints, and the dials as presets; ",
                    "goal and prompt stay per-agent).")
         )
-      ),
-      card(
-        card_header("Participant library"),
-        card_body(
-          p(class = "text-muted",
-            "Every role in roles.json. Tick one or more and add them straight to the roster, ",
-            "or load a single one into the editor on the left to adjust it before adding. ",
-            "Search and filter with the boxes under the headers."),
-          DTOutput("library_table"),
-          br(),
-          div(
-            actionButton("lib_add", "➕ Add selected to roster", class = "btn-success btn-sm"),
-            actionButton("lib_load", "✎ Load into editor", class = "btn-sm btn-primary"),
-            span(class = "text-muted", style = "margin-left:8px;",
-                 "Rules ✓ = the role carries constraints (what it must not do).")
-          )
-        )
       )
+    ),
+    card(
+      card_header("Participant library"),
+      # fillable=FALSE: let the body flow top-to-bottom. The default fill layout
+      # flexes the DT against the button row, which overlaps them once the
+      # table is taller than the allotted space.
+      card_body(
+        fillable = FALSE,
+        p(class = "text-muted",
+          "Every role in roles.json. Tick one or more and add them straight to the roster, ",
+          "or load a single one into the editor on the left to adjust it before adding. ",
+          "Search and filter with the boxes under the headers."),
+        DTOutput("library_table"),
+        br(),
+        div(
+          actionButton("lib_add", "➕ Add selected to roster", class = "btn-success btn-sm"),
+          actionButton("lib_load", "✎ Load into editor", class = "btn-sm btn-primary"),
+          span(class = "text-muted", style = "margin-left:8px;",
+               "Rules ✓ = the role carries constraints (what it must not do).")
+        )
       )
     )
   ),
