@@ -45,6 +45,28 @@ agent_from_role <- function(cfg, role_name, provider = NULL, overrides = list())
          reasoning = "Pragmatist", evidence = "Expert Consensus",
          communication = "", bias = "")
   } else r
+  agent_from_role_record(cfg, base, provider = provider, overrides = overrides)
+}
+
+# Roster names must stay distinct: they key the transcript, the analytics table
+# and the moderator's attributions, so two "Skeptic / Falsifier" agents would be
+# indistinguishable downstream. Appends " (2)", " (3)" ... on collision.
+unique_agent_name <- function(name, agents) {
+  name <- if (nzchar(name %||% "")) name else "Agent"
+  taken <- vapply(agents %||% list(), function(a) a$name %||% "", character(1))
+  if (!(name %in% taken)) return(name)
+  i <- 2L
+  repeat {
+    cand <- paste0(name, " (", i, ")")
+    if (!(cand %in% taken)) return(cand)
+    i <- i + 1L
+  }
+}
+
+# Build an agent from a role RECORD rather than a name looked up in config, so
+# roles added to the library mid-session (which aren't in the loaded cfg) can
+# still be seated. agent_from_role() is the by-name wrapper around this.
+agent_from_role_record <- function(cfg, base, provider = NULL, overrides = list()) {
   new_agent(
     cfg,
     name = overrides$name %||% base$name,

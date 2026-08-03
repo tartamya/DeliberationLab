@@ -278,6 +278,7 @@ ui <- page_navbar(
           helpText("Select a row to edit it (button becomes Save). Click it again to deselect.")
         )
       ),
+      div(
       card(
         card_header("Current roster"),
         card_body(
@@ -298,6 +299,24 @@ ui <- page_navbar(
                    "(saves expertise/reasoning/evidence/communication/bias, any role constraints, and the dials as presets; ",
                    "goal and prompt stay per-agent).")
         )
+      ),
+      card(
+        card_header("Participant library"),
+        card_body(
+          p(class = "text-muted",
+            "Every role in roles.json. Tick one or more and add them straight to the roster, ",
+            "or load a single one into the editor on the left to adjust it before adding. ",
+            "Search and filter with the boxes under the headers."),
+          DTOutput("library_table"),
+          br(),
+          div(
+            actionButton("lib_add", "➕ Add selected to roster", class = "btn-success btn-sm"),
+            actionButton("lib_load", "✎ Load into editor", class = "btn-sm btn-primary"),
+            span(class = "text-muted", style = "margin-left:8px;",
+                 "Rules ✓ = the role carries constraints (what it must not do).")
+          )
+        )
+      )
       )
     )
   ),
@@ -688,11 +707,17 @@ server <- function(input, output, session) {
   # parks the role name here; the prefill skips that one firing.
   skip_role_prefill <- reactiveVal(NULL)
 
+  # The live participant library. Starts as the roles loaded from roles.json and
+  # grows when "Save to library" appends one, so a role saved this session is
+  # immediately pickable and seatable -- previously only its NAME reached the
+  # dropdown, so selecting it prefilled nothing.
+  role_lib <- reactiveVal(CONFIG$roles)
+
   # Selecting a role prefills expertise/reasoning/evidence and any dial presets.
   observeEvent(input$ag_role, {
     if (identical(skip_role_prefill(), input$ag_role)) { skip_role_prefill(NULL); return() }
     skip_role_prefill(NULL)
-    r <- cfg_find(cfg$roles, input$ag_role)
+    r <- cfg_find(role_lib(), input$ag_role)
     if (!is.null(r)) {
       updateTextInput(session, "ag_expertise", value = r$expertise %||% "")
       if ((r$reasoning %||% "") %in% cfg_names(cfg$reasoning_styles))
@@ -725,7 +750,7 @@ server <- function(input, output, session) {
       a <- rv$agents[[sel]]
       editing_idx(sel)
       updateTextInput(session, "ag_name", value = a$name)
-      role_sel <- if (a$role %in% cfg_names(cfg$roles)) a$role else "Custom"
+      role_sel <- if (a$role %in% cfg_names(role_lib())) a$role else "Custom"
       skip_role_prefill(role_sel)   # keep the agent's own values, not the role defaults
       updateSelectInput(session, "ag_role", selected = role_sel)
       updateTextInput(session, "ag_expertise", value = a$expertise)
@@ -747,11 +772,11 @@ server <- function(input, output, session) {
   observeEvent(input$ag_add, {
     a <- new_agent(cfg, name = input$ag_name,
                    role = if (identical(input$ag_role, "Custom")) input$ag_name else input$ag_role,
-                   category = { r <- cfg_find(cfg$roles, input$ag_role); if (is.null(r)) "Custom" else r$category },
+                   category = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "Custom" else r$category },
                    expertise = input$ag_expertise, reasoning = input$ag_reasoning, evidence = input$ag_evidence,
-                   communication = { r <- cfg_find(cfg$roles, input$ag_role); if (is.null(r)) "" else r$communication %||% "" },
-                   bias = { r <- cfg_find(cfg$roles, input$ag_role); if (is.null(r)) "" else r$bias %||% "" },
-                   constraints = { r <- cfg_find(cfg$roles, input$ag_role); if (is.null(r)) "" else r$constraints %||% "" },
+                   communication = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$communication %||% "" },
+                   bias = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$bias %||% "" },
+                   constraints = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$constraints %||% "" },
                    goal = input$ag_goal, creativity = input$ag_creativity, skepticism = input$ag_skepticism,
                    risk_tolerance = input$ag_risk, confidence = input$ag_confidence,
                    prompt = input$ag_prompt, provider = input$ag_provider)
@@ -831,7 +856,89 @@ server <- function(input, output, session) {
   # Names saved to the library this session (so the role picker shows them and
   # a double-save can't duplicate the file entry -- without relying on mutating
   # the shared `cfg` from inside an observer).
-  saved_roles <- reactiveVal(character(0))
+
+  # ---- Participant library (browse / seat / edit-then-seat) ----------------
+  # Flat view of role_lib() for the table. `Rules` marks roles that carry
+  # constraints, since that is what distinguishes otherwise similar roles.
+  library_df <- reactive({
+    lib <- role_lib()
+    if (length(lib) == 0)
+      return(data.frame(Role = character(), Category = character(),
+                        Expertise = character(), Rules = character()))
+    data.frame(
+      Role      = vapply(lib, function(r) r$name %||% "", character(1)),
+      Category  = vapply(lib, function(r) r$category %||% "", character(1)),
+      Expertise = vapply(lib, function(r) r$expertise %||% "", character(1)),
+      Rules     = vapply(lib, function(r) if (nzchar(r$constraints %||% "")) "✓" else "", character(1)),
+      stringsAsFactors = FALSE)
+  })
+
+  output$library_table <- renderDT({
+    datatable(library_df(), rownames = FALSE, selection = "multiple", filter = "top",
+              options = list(pageLength = 8, lengthMenu = c(5, 8, 15, 30), dom = "ltip",
+                             columnDefs = list(list(width = "46px", targets = 3))))
+  })
+
+  # The library table is rebuilt whenever role_lib() changes, which clears the
+  # selection; keep a proxy so handlers can deselect deliberately.
+  library_proxy <- dataTableProxy("library_table")
+
+  # Seat every ticked library role directly on the roster.
+  observeEvent(input$lib_add, {
+    if (isTRUE(rv$running)) {
+      showNotification("Stop the running deliberation before changing the roster.", type = "warning"); return()
+    }
+    sel <- input$library_table_rows_selected
+    lib <- role_lib()
+    if (length(sel) == 0) { showNotification("Tick one or more roles in the library first.", type = "warning"); return() }
+    provs <- input$active_providers
+    if (length(provs) == 0) provs <- provider_ids(cfg)
+    if (length(provs) == 0) { showNotification("No active providers to assign.", type = "error"); return() }
+    added <- character(0)
+    for (i in seq_along(sel)) {
+      r <- lib[[sel[i]]]
+      # Providers are dealt round-robin so a multi-role add spreads across them
+      # rather than stacking every new agent on one provider.
+      a <- agent_from_role_record(cfg, r, provider = provs[[((i - 1) %% length(provs)) + 1]])
+      a$name <- unique_agent_name(r$name %||% "Agent", rv$agents)
+      rv$agents <- c(rv$agents, list(a))
+      added <- c(added, a$name)
+    }
+    selectRows(library_proxy, NULL)
+    showNotification(paste0("Added ", length(added), " participant",
+                            if (length(added) != 1) "s" else "", ": ",
+                            paste(added, collapse = ", ")), type = "message")
+  })
+
+  # Load one library role into the editor on the left so it can be adjusted
+  # before being added. Deliberately leaves the roster untouched.
+  observeEvent(input$lib_load, {
+    sel <- input$library_table_rows_selected
+    if (length(sel) != 1) { showNotification("Tick exactly one role to load into the editor.", type = "warning"); return() }
+    r <- role_lib()[[sel]]
+    # Drop any roster row selection first, or "Add Agent" would still be in
+    # Save-Changes mode and overwrite the selected agent instead of adding.
+    editing_idx(NULL); selectRows(agents_proxy, NULL)
+    updateActionButton(session, "ag_add", label = "Add Agent")
+    nm <- r$name %||% "New Agent"
+    skip_role_prefill(nm)   # we set the fields here; don't let prefill race us
+    updateSelectInput(session, "ag_role", selected = if (nm %in% cfg_names(role_lib())) nm else "Custom")
+    updateTextInput(session, "ag_name", value = unique_agent_name(nm, rv$agents))
+    updateTextInput(session, "ag_expertise", value = r$expertise %||% "")
+    if ((r$reasoning %||% "") %in% cfg_names(cfg$reasoning_styles))
+      updateSelectInput(session, "ag_reasoning", selected = r$reasoning)
+    if ((r$evidence %||% "") %in% cfg_names(cfg$evidence_types))
+      updateSelectInput(session, "ag_evidence", selected = r$evidence)
+    for (d in list(c("ag_creativity", "creativity"), c("ag_skepticism", "skepticism"),
+                   c("ag_risk", "risk_tolerance"))) {
+      v <- suppressWarnings(as.numeric(r[[d[2]]] %||% NA))
+      updateSliderInput(session, d[1], value = if (is.na(v)) 0.5 else v)
+    }
+    updateTextAreaInput(session, "ag_goal", value = "")
+    updateTextAreaInput(session, "ag_prompt", value = "")
+    showNotification(paste0("Loaded '", nm, "' into the editor -- adjust it, then click Add Agent."),
+                     type = "message")
+  })
 
   # Save the selected agent's role into config/roles.json so it becomes a
   # reusable, pickable role in future sessions (and this one's role picker).
@@ -843,7 +950,7 @@ server <- function(input, output, session) {
     a <- rv$agents[[sel]]
     role_name <- trimws(a$name %||% "")
     if (!nzchar(role_name)) { showNotification("The agent needs a name first.", type = "warning"); return() }
-    if (!is.null(cfg_find(cfg$roles, role_name)) || role_name %in% saved_roles()) {
+    if (!is.null(cfg_find(role_lib(), role_name))) {
       showNotification(paste0("A library role named '", role_name, "' already exists -- rename the agent first."),
                        type = "warning"); return()
     }
@@ -861,9 +968,11 @@ server <- function(input, output, session) {
     ok <- tryCatch({ append_role_to_library(CONFIG_DIR, role); TRUE },
                    error = function(e) { showNotification(paste("Could not save:", conditionMessage(e)), type = "error"); FALSE })
     if (!ok) return()
-    saved_roles(c(saved_roles(), role_name))
-    updateSelectInput(session, "ag_role", choices = c("Custom", cfg_names(cfg$roles), saved_roles()))
-    showNotification(paste0("Saved '", role_name, "' to the role library (in config/roles.json)."), type = "message")
+    # Append to the live library so the role is immediately usable this session:
+    # it appears in the library table, the picker, and prefills when selected.
+    role_lib(c(role_lib(), list(role)))
+    updateSelectInput(session, "ag_role", choices = c("Custom", cfg_names(role_lib())))
+    showNotification(paste0("Saved '", role_name, "' to the participant library (config/roles.json)."), type = "message")
   })
 
   # Randomize the run settings (mode, moderator, objective, rounds, tokens,
