@@ -1462,14 +1462,26 @@ server <- function(input, output, session) {
     })
     tags$div(Filter(Negate(is.null), cards))
   })
+  # Per-agent line colours. plotly's default qualitative palette is Set2, which
+  # caps at 8 -- a 9+ agent roster (one click via the participant library) made
+  # every render warn and interpolate. Same Set2 look up to 8 agents; beyond
+  # that, distinct hues from base R's hcl palette, which scales to any n.
+  agent_palette <- function(agents) {
+    n <- length(unique(agents))
+    set2 <- c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3",
+              "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3")
+    if (n <= length(set2)) set2[seq_len(max(n, 1))] else grDevices::hcl.colors(n, "Dark 3")
+  }
   output$plot_confidence <- renderPlotly({
     df <- rv$analytics; req(df, nrow(df) > 0)
-    plot_ly(df, x = ~round, y = ~confidence, color = ~agent, type = "scatter", mode = "lines+markers") |>
+    plot_ly(df, x = ~round, y = ~confidence, color = ~agent, colors = agent_palette(df$agent),
+            type = "scatter", mode = "lines+markers") |>
       plotly::layout(yaxis = list(title = "Confidence %"), xaxis = list(title = "Round"))
   })
   output$plot_novelty <- renderPlotly({
     df <- rv$analytics; req(df, nrow(df) > 0)
-    plot_ly(df, x = ~round, y = ~novelty, color = ~agent, type = "scatter", mode = "lines+markers") |>
+    plot_ly(df, x = ~round, y = ~novelty, color = ~agent, colors = agent_palette(df$agent),
+            type = "scatter", mode = "lines+markers") |>
       plotly::layout(yaxis = list(title = "Novelty"), xaxis = list(title = "Round"))
   })
 
