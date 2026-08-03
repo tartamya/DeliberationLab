@@ -295,7 +295,8 @@ ui <- page_navbar(
           ),
           helpText("Shuffle roster replaces all participants with a fresh random set on the active providers. ",
                    "Save to library adds the selected agent's role to config/roles.json so it's reusable in future sessions ",
-                   "(saves expertise/reasoning/evidence/communication/bias; per-agent goal, prompt and dials are set when you use it).")
+                   "(saves expertise/reasoning/evidence/communication/bias, any role constraints, and the dials as presets; ",
+                   "goal and prompt stay per-agent).")
         )
       )
     )
@@ -846,11 +847,17 @@ server <- function(input, output, session) {
       showNotification(paste0("A library role named '", role_name, "' already exists -- rename the agent first."),
                        type = "warning"); return()
     }
+    # constraints are part of the role's identity, not per-agent trim -- dropping
+    # them here would silently save e.g. a Red-Team stripped of its prohibition.
+    # Dials go too, so a saved role is re-seated with the temperament it had.
     role <- list(name = role_name,
                  category = if (nzchar(a$category %||% "")) a$category else "Custom",
                  expertise = a$expertise %||% "", reasoning = a$reasoning %||% "Pragmatist",
                  evidence = a$evidence %||% "Expert Consensus",
-                 communication = a$communication %||% "", bias = a$bias %||% "")
+                 communication = a$communication %||% "", bias = a$bias %||% "",
+                 constraints = a$constraints %||% "",
+                 creativity = a$creativity, skepticism = a$skepticism,
+                 risk_tolerance = a$risk_tolerance)
     ok <- tryCatch({ append_role_to_library(CONFIG_DIR, role); TRUE },
                    error = function(e) { showNotification(paste("Could not save:", conditionMessage(e)), type = "error"); FALSE })
     if (!ok) return()
