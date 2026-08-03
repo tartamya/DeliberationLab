@@ -254,6 +254,10 @@ ui <- page_navbar(
           br(), br(),
           actionButton("apply_plan_agents", "Build participants from plan", class = "btn-success"),
           actionButton("apply_plan_setup", "Apply recommended mode/moderator"),
+          br(), br(),
+          downloadButton("dl_plan_pdf", "Save plan as PDF", class = "btn-sm btn-outline-secondary"),
+          helpText("The PDF includes the debate topic, the debate coordinator named above, ",
+                   "and the full plan (panel, lenses, dimensions, questions, recommendations)."),
           uiOutput("planner_msg")
         )
       ),
@@ -656,6 +660,21 @@ server <- function(input, output, session) {
     if (is.null(rv$plan_msg)) return(NULL)
     tags$div(class = "text-warning", style = "margin-top:8px;", rv$plan_msg)
   })
+
+  # Save the current plan as a PDF (topic in the title, coordinator underneath,
+  # same pattern as the consensus report: HTML->PDF with a plain-text fallback).
+  output$dl_plan_pdf <- downloadHandler(
+    filename = function() paste0("deliberation-plan-", format(Sys.time(), "%Y%m%d-%H%M"), ".pdf"),
+    content = function(file) {
+      ensure_writable(file)
+      title <- paste0("Deliberation Plan: ", trimws(input$topic %||% ""))
+      meta <- coord_meta()
+      ok <- if (is.null(rv$plan)) FALSE else
+        tryCatch({ html_to_pdf(.html_doc(title, plan_html(rv$plan), meta = meta), file); TRUE },
+                 error = function(e) FALSE)
+      if (!ok) text_to_pdf(plan_to_text(rv$plan, input$topic %||% ""), file,
+                           title = title, subtitle = meta)
+    })
 
   output$planner_view <- renderUI({
     p <- rv$plan

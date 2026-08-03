@@ -317,10 +317,21 @@ plan_html <- function(plan) {
     sprintf(" (importance %.2f) ", suppressWarnings(as.numeric(d$importance %||% NA))),
     htmltools::tags$em(d$why %||% ""))))
   experts <- htmltools::tags$ul(lapply(plan$experts, function(e) htmltools::tags$li(
-    htmltools::tags$b(e$role %||% ""), " — ", e$reasoning %||% "", " / ", e$evidence %||% "", " ",
+    # Five-role plans: e$name is the panel label ("Challenger") and e$expertise
+    # its planner-assigned domain lens; free plans fall back to the role name.
+    htmltools::tags$b(e$name %||% e$role %||% ""),
+    if (nzchar(e$expertise %||% "")) paste0(" [lens: ", e$expertise, "]") else "",
+    " — ", e$reasoning %||% "", " / ", e$evidence %||% "", " ",
     htmltools::tags$em(e$why %||% ""))))
+  design_line <- paste0(
+    "Panel: ", if (identical(plan$panel %||% "", "five_role"))
+      "five-role adversarial scrutiny (Synthesiser verdict at consensus)" else "planner's free choice",
+    "   |   Source: ", plan$source %||% "?",
+    "   |   Recommended agents: ", plan$recommended_num_agents %||% "?")
   as.character(htmltools::tagList(
     htmltools::tags$h2("Deliberation Plan"),
+    card("Design", htmltools::tags$p(design_line),
+         if (nzchar(plan$rationale %||% "")) htmltools::tags$p(htmltools::tags$em(plan$rationale)) else NULL),
     card("Dimensions", dims),
     card("Experts", experts),
     card("Debate questions", ul(plan$debate_questions)),
@@ -330,6 +341,34 @@ plan_html <- function(plan) {
     card("Expected controversies", ul(plan$expected_controversies)),
     card("Evidence required", ul(plan$required_evidence))
   ))
+}
+
+# Plain-text plan rendering: the fallback when the HTML->PDF pipeline (chromote)
+# is unavailable, mirroring the consensus report's text fallback.
+plan_to_text <- function(plan, topic = "") {
+  if (is.null(plan)) return("No plan yet. Run the Planner first.")
+  b <- function(x) { x <- unlist(x); if (length(x) == 0) "  (none)" else paste0("  - ", x, collapse = "\n") }
+  experts <- paste(vapply(plan$experts %||% list(), function(e) paste0(
+    "  - ", e$name %||% e$role %||% "",
+    if (nzchar(e$expertise %||% "")) paste0(" [lens: ", e$expertise, "]") else "",
+    " -- ", e$reasoning %||% "", " / ", e$evidence %||% "",
+    if (nzchar(e$why %||% "")) paste0(" (", e$why, ")") else ""), character(1)), collapse = "\n")
+  dims <- paste(vapply(plan$dimensions %||% list(), function(d) sprintf(
+    "  - %s (importance %.2f) %s", d$name %||% "", suppressWarnings(as.numeric(d$importance %||% NA)),
+    d$why %||% ""), character(1)), collapse = "\n")
+  paste0(
+    "DELIBERATION PLAN\n",
+    if (nzchar(topic)) paste0("Topic: ", topic, "\n") else "",
+    "Panel: ", if (identical(plan$panel %||% "", "five_role")) "five-role adversarial scrutiny" else "free choice",
+    " | Source: ", plan$source %||% "?", " | Recommended agents: ", plan$recommended_num_agents %||% "?", "\n",
+    if (nzchar(plan$rationale %||% "")) paste0("Rationale: ", plan$rationale, "\n") else "",
+    "\n## Dimensions\n", dims,
+    "\n\n## Experts\n", experts,
+    "\n\n## Debate questions\n", b(plan$debate_questions),
+    "\n\n## Recommended\n  Mode: ", plan$recommended_mode %||% "", "\n  Moderator: ", plan$recommended_moderator %||% "",
+    "\n\n## Expected agreements\n", b(plan$expected_agreements),
+    "\n\n## Expected controversies\n", b(plan$expected_controversies),
+    "\n\n## Evidence required\n", b(plan$required_evidence), "\n")
 }
 
 # Per-round moderator summaries: the last turn of each round carries $moderator.
