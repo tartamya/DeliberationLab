@@ -751,7 +751,10 @@ server <- function(input, output, session) {
       editing_idx(sel)
       updateTextInput(session, "ag_name", value = a$name)
       role_sel <- if (a$role %in% cfg_names(role_lib())) a$role else "Custom"
-      skip_role_prefill(role_sel)   # keep the agent's own values, not the role defaults
+      # Keep the agent's own values, not the role defaults -- but only park the
+      # skip if the dropdown will actually change (no change = no event = the
+      # parked skip would go stale and swallow the next genuine selection).
+      if (!identical(input$ag_role, role_sel)) skip_role_prefill(role_sel)
       updateSelectInput(session, "ag_role", selected = role_sel)
       updateTextInput(session, "ag_expertise", value = a$expertise)
       if (a$reasoning %in% cfg_names(cfg$reasoning_styles)) updateSelectInput(session, "ag_reasoning", selected = a$reasoning)
@@ -782,9 +785,13 @@ server <- function(input, output, session) {
                    prompt = input$ag_prompt, provider = input$ag_provider)
     idx <- editing_idx()
     if (!is.null(idx) && idx <= length(rv$agents)) {
+      # Names key the transcript/analytics; uniquify against the OTHER agents
+      # so an edit can keep its own name without being renamed to "(2)".
+      a$name <- unique_agent_name(a$name, rv$agents[-idx])
       a$id <- rv$agents[[idx]]$id; rv$agents[[idx]] <- a
       showNotification(paste("Saved:", a$name), type = "message")
     } else {
+      a$name <- unique_agent_name(a$name, rv$agents)
       rv$agents <- c(rv$agents, list(a)); showNotification(paste("Added:", a$name), type = "message")
     }
     editing_idx(NULL); updateActionButton(session, "ag_add", label = "Add Agent")
@@ -844,7 +851,9 @@ server <- function(input, output, session) {
     if (isTRUE(rv$running)) {
       showNotification("Stop the running deliberation before shuffling the roster.", type = "warning"); return()
     }
-    roster <- random_roster(cfg, input$active_providers)
+    # Shuffle draws from the live library, so roles saved this session count.
+    cfg_live <- cfg; cfg_live$roles <- role_lib()
+    roster <- random_roster(cfg_live, input$active_providers)
     if (length(roster) == 0) { showNotification("Could not build a roster.", type = "error"); return() }
     rv$agents <- roster
     rv$loaded_providers <- NULL   # a fresh random roster, not a loaded debate's
@@ -921,8 +930,13 @@ server <- function(input, output, session) {
     editing_idx(NULL); selectRows(agents_proxy, NULL)
     updateActionButton(session, "ag_add", label = "Add Agent")
     nm <- r$name %||% "New Agent"
-    skip_role_prefill(nm)   # we set the fields here; don't let prefill race us
-    updateSelectInput(session, "ag_role", selected = if (nm %in% cfg_names(role_lib())) nm else "Custom")
+    role_sel <- if (nm %in% cfg_names(role_lib())) nm else "Custom"
+    # We set the fields ourselves; don't let the prefill observer race us. Park
+    # the skip ONLY if the dropdown will actually change -- updating a select to
+    # its current value fires no event, so an unconditional park would go stale
+    # and swallow the user's next genuine selection of this role.
+    if (!identical(input$ag_role, role_sel)) skip_role_prefill(role_sel)
+    updateSelectInput(session, "ag_role", selected = role_sel)
     updateTextInput(session, "ag_name", value = unique_agent_name(nm, rv$agents))
     updateTextInput(session, "ag_expertise", value = r$expertise %||% "")
     if ((r$reasoning %||% "") %in% cfg_names(cfg$reasoning_styles))

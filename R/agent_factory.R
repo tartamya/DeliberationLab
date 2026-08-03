@@ -94,13 +94,19 @@ agents_from_plan <- function(cfg, plan, providers) {
   if (length(providers) == 0) providers <- provider_ids(cfg)[1]
   experts <- plan$experts
   if (length(experts) == 0) return(list())
-  lapply(seq_along(experts), function(i) {
+  # Built iteratively so each agent's name is uniquified against those already
+  # seated -- the planner may legitimately propose the same role twice.
+  agents <- list()
+  for (i in seq_along(experts)) {
     e <- experts[[i]]
     prov <- providers[((i - 1) %% length(providers)) + 1]
-    agent_from_role(cfg, e$role, provider = prov,
-                    overrides = list(reasoning = e$reasoning %||% "", evidence = e$evidence %||% "",
-                                     goal = e$why %||% ""))
-  })
+    a <- agent_from_role(cfg, e$role, provider = prov,
+                         overrides = list(reasoning = e$reasoning %||% "", evidence = e$evidence %||% "",
+                                          goal = e$why %||% ""))
+    a$name <- unique_agent_name(a$name, agents)
+    agents <- c(agents, list(a))
+  }
+  agents
 }
 
 # A minimal default roster so the app is usable before running the planner.
@@ -126,15 +132,27 @@ random_roster <- function(cfg, providers, n = NULL) {
   n <- n %||% sample(2:5, 1)
   reasoning <- cfg_names(cfg$reasoning_styles)
   evidence  <- cfg_names(cfg$evidence_types)
-  lapply(seq_len(n), function(i) {
-    role <- cfg$roles[[sample(length(cfg$roles), 1)]]
-    agent_from_role(cfg, role$name, provider = sample(providers, 1),
-      overrides = list(
+  # Distinct roles when the pool allows (duplicate experts add little), and
+  # names uniquified regardless -- they key the transcript and analytics.
+  picks <- sample(length(cfg$roles), min(n, length(cfg$roles)))
+  if (length(picks) < n) picks <- c(picks, sample(length(cfg$roles), n - length(picks), replace = TRUE))
+  agents <- list()
+  for (i in seq_len(n)) {
+    role <- cfg$roles[[picks[i]]]
+    # A role with constraints is defined by its epistemic job: randomizing its
+    # reasoning/evidence/dials would undermine the very boundary it enforces
+    # (a Red-Team at skepticism 0.1). Shuffle only what the role leaves open.
+    constrained <- nzchar(role$constraints %||% "")
+    a <- agent_from_role(cfg, role$name, provider = sample(providers, 1),
+      overrides = if (constrained) list(confidence = round(runif(1), 2)) else list(
         reasoning = if (length(reasoning)) sample(reasoning, 1) else "",
         evidence  = if (length(evidence))  sample(evidence, 1)  else "",
         creativity = round(runif(1), 2), skepticism = round(runif(1), 2),
         risk_tolerance = round(runif(1), 2), confidence = round(runif(1), 2)))
-  })
+    a$name <- unique_agent_name(a$name, agents)
+    agents <- c(agents, list(a))
+  }
+  agents
 }
 
 # Flatten a roster to a data.frame for the Participants table.
