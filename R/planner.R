@@ -14,10 +14,13 @@
 # presets. The Synthesiser is deliberately absent -- the consensus engine plays
 # it after the debate, so seating it would double-count.
 .FIVE_ROLE_PANEL <- list(
+  # Seating order = speaking order. The Source Auditor speaks FIRST each round:
+  # it audits the previous round's claims before this round's fresh argument
+  # can anchor it, and the debaters then argue with the audit on the table.
+  list(panel = "Source Auditor", lib = "Empirical Evidence Auditor"),
   list(panel = "Proposer",       lib = "Proponent / Causal Advocate"),
   list(panel = "Challenger",     lib = "Skeptic / Falsifier"),
-  list(panel = "Steelman",       lib = "Steelman"),
-  list(panel = "Source Auditor", lib = "Empirical Evidence Auditor"))
+  list(panel = "Steelman",       lib = "Steelman"))
 
 # Normalize a five-role planner result: whatever the LLM returned, the panel is
 # ALWAYS the four canonical roles in canonical order -- only the domain lenses

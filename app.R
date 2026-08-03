@@ -244,6 +244,9 @@ ui <- page_navbar(
                        selected = "five_role"),
           helpText("Five-role: the four debating roles are fixed; the Planner assigns each a ",
                    "topic-specific domain lens, and the consensus step acts as the Synthesiser. ",
+                   "The Source Auditor speaks first each round and, for the first two rounds, ",
+                   "sees only a claims-and-evidence digest -- not the other participants' ",
+                   "conclusions -- so its audit is formed independently. ",
                    "Free choice: the Planner designs the panel from the full role library (previous behaviour)."),
           conditionalPanel("input.panel_design == 'free'",
             numericInput("planner_n_hint", "Target number of agents (hint)", value = 4, min = 2, max = 20)),
@@ -799,6 +802,10 @@ server <- function(input, output, session) {
                    communication = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$communication %||% "" },
                    bias = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$bias %||% "" },
                    constraints = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$constraints %||% "" },
+                   history_view = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$history_view %||% "" },
+                   digest_rounds = { r <- cfg_find(role_lib(), input$ag_role)
+                                     dr <- suppressWarnings(as.integer((if (is.null(r)) 0 else r$digest_rounds %||% 0)[1]))
+                                     if (length(dr) == 0 || is.na(dr)) 0L else dr },
                    goal = input$ag_goal, creativity = input$ag_creativity, skepticism = input$ag_skepticism,
                    risk_tolerance = input$ag_risk, confidence = input$ag_confidence,
                    prompt = input$ag_prompt, provider = input$ag_provider)
@@ -996,6 +1003,8 @@ server <- function(input, output, session) {
                  evidence = a$evidence %||% "Expert Consensus",
                  communication = a$communication %||% "", bias = a$bias %||% "",
                  constraints = a$constraints %||% "",
+                 history_view = a$history_view %||% "",
+                 digest_rounds = a$digest_rounds %||% 0,
                  creativity = a$creativity, skepticism = a$skepticism,
                  risk_tolerance = a$risk_tolerance)
     ok <- tryCatch({ append_role_to_library(CONFIG_DIR, role); TRUE },
@@ -1363,18 +1372,29 @@ server <- function(input, output, session) {
             # first. From round 2 the full history flows as usual.
             blind <- r == 1 && isTRUE(mode_cfg$independent_first_round)
             hist_for_turn <- if (blind) Filter(function(h) (h$round %||% 0) < r, rv$history) else rv$history
+            # Independent-audit window (Source Auditor): within the agent's
+            # digest_rounds window it sees a conclusion-free claims digest
+            # instead of the verbatim transcript. Empty digest (moderator
+            # produced nothing yet) falls back to the full transcript, so the
+            # auditor never audits from nothing.
+            digest_txt <- if (!blind && identical(a$history_view %||% "", "claims_digest") &&
+                              r <= (a$digest_rounds %||% 0)) claims_digest(hist_for_turn) else ""
+            audit_view <- nzchar(digest_txt)
             turn <- NULL
             repeat {
               # A blind turn gets NO same-round signals: history is filtered above,
               # and group confidence / provisional consensus are withheld too --
               # analytics update per turn, so they would leak the peers' positions
               # into a round that is supposed to produce independent judgments.
+              # The audit view withholds the same signals: both exist to keep the
+              # turn's judgment independent of the group's stated conclusions.
               turn <- run_turn(cfg, a, phase, topic, hist_for_turn, rv$kg, mode_name, obj_fragment,
                                dims_txt, r, resolve_api_key(cfg, a$provider, rv$ui_keys),
                                max_tokens, temperature, reff,
-                               current_confidence = if (!blind && !is.null(rv$analytics) && nrow(rv$analytics) > 0)
+                               history_override_txt = if (audit_view) digest_txt else NULL,
+                               current_confidence = if (!blind && !audit_view && !is.null(rv$analytics) && nrow(rv$analytics) > 0)
                                  paste0(round(mean(rv$analytics$confidence, na.rm = TRUE)), "%") else NULL,
-                               current_consensus = if (!blind && !is.null(rv$consensus)) rv$consensus$consensus else NULL,
+                               current_consensus = if (!blind && !audit_view && !is.null(rv$consensus)) rv$consensus$consensus else NULL,
                                language = lang, use_cache = use_cache,
                                problem_details = pdetails, critical_rules = crules)
               if (isTRUE(turn$ok)) break

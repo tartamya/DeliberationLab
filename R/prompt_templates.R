@@ -152,9 +152,16 @@ build_turn_messages <- function(topic, history, kg_summary, agent, cfg,
                                 dimensions_txt = "", current_confidence = NULL,
                                 current_consensus = NULL, history_window = 12,
                                 language = NULL, problem_details = NULL,
-                                critical_rules = NULL) {
+                                critical_rules = NULL, history_override_txt = NULL) {
   persona <- build_persona(agent, cfg)
-  history_txt <- render_history(history, history_window)
+  # history_override_txt replaces the rendered transcript wholesale -- used for
+  # the Source Auditor's independent-audit window, where the "discussion" shown
+  # is a conclusion-free claims digest rather than the verbatim debate.
+  override <- !is.null(history_override_txt) && nzchar(history_override_txt)
+  history_txt <- if (override) paste0(
+    "(Independent audit view: extracted claims and evidence only. Participants' positions, ",
+    "confidence levels, and the verbatim debate are withheld from you for this round.)\n\n",
+    history_override_txt) else render_history(history, history_window)
   # Critical rules bind EVERY agent regardless of persona. Placed at the very
   # top of the system prompt (before the persona's rhetorical framing) and
   # marked as overriding, so accuracy/uncertainty beats winning the argument.

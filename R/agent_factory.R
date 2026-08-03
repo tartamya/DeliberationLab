@@ -17,7 +17,7 @@ new_agent <- function(cfg, name, role = "", category = "", expertise = "",
                       communication = "", bias = "", goal = "",
                       creativity = 0.5, skepticism = 0.5, risk_tolerance = 0.5,
                       confidence = 0.5, prompt = "", provider = NULL,
-                      constraints = "") {
+                      constraints = "", history_view = "", digest_rounds = 0) {
   provider <- provider %||% (if (length(cfg$providers)) cfg$providers[[1]]$id else "openai")
   list(
     id = digest::digest(paste(name, role, Sys.time(), runif(1)), algo = "crc32"),
@@ -25,6 +25,10 @@ new_agent <- function(cfg, name, role = "", category = "", expertise = "",
     reasoning = reasoning, evidence = evidence, communication = communication, bias = bias,
     # what this role must NOT do -- emitted as a hard prohibition in the persona.
     constraints = constraints,
+    # history_view = "claims_digest" + digest_rounds = N: for rounds 2..N this
+    # agent sees the moderator's conclusion-free claims digest instead of the
+    # verbatim transcript (the Source Auditor's independent-audit window).
+    history_view = history_view, digest_rounds = digest_rounds,
     goal = goal, creativity = creativity, skepticism = skepticism,
     risk_tolerance = risk_tolerance, confidence = confidence, prompt = prompt,
     provider = provider,
@@ -78,6 +82,9 @@ agent_from_role_record <- function(cfg, base, provider = NULL, overrides = list(
     evidence  = if (nzchar(overrides$evidence  %||% "")) overrides$evidence  else (base$evidence  %||% "Expert Consensus"),
     communication = base$communication %||% "", bias = base$bias %||% "",
     constraints = base$constraints %||% "",
+    history_view = base$history_view %||% "",
+    digest_rounds = { dr <- suppressWarnings(as.integer((base$digest_rounds %||% 0)[1]))
+                      if (length(dr) == 0 || is.na(dr)) 0L else dr },
     goal = overrides$goal %||% "",
     # Dials fall back to the role's presets before the 0.5 default, so a role
     # like Red-Team arrives already sceptical rather than neutral.

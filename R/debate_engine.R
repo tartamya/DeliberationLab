@@ -46,14 +46,16 @@ run_turn <- function(cfg, agent, phase_instruction, topic, history, kg,
                      round_number, api_key, max_tokens, temperature,
                      reasoning_effort, current_confidence = NULL,
                      current_consensus = NULL, language = NULL, use_cache = FALSE,
-                     problem_details = NULL, critical_rules = NULL) {
+                     problem_details = NULL, critical_rules = NULL,
+                     history_override_txt = NULL) {
   msgs <- build_turn_messages(
     topic = topic, history = history, kg_summary = kg_summary_text(kg), agent = agent, cfg = cfg,
     phase_instruction = phase_instruction, mode_name = mode_name,
     objective_fragment = objective_fragment, round_number = round_number,
     max_tokens = max_tokens, dimensions_txt = dimensions_txt,
     current_confidence = current_confidence, current_consensus = current_consensus,
-    language = language, problem_details = problem_details, critical_rules = critical_rules)
+    language = language, problem_details = problem_details, critical_rules = critical_rules,
+    history_override_txt = history_override_txt)
   res <- llm_chat(cfg, agent$provider, msgs, api_key, model = agent$model %||% NULL,
                   max_tokens = max_tokens, temperature = temperature,
                   reasoning_effort = reasoning_effort, use_cache = use_cache)
@@ -121,6 +123,37 @@ auto_stop_reached <- function(analytics, n_agents, threshold = 0.15) {
   if (is.null(analytics) || nrow(analytics) == 0) return(FALSE)
   recent <- utils::tail(analytics$novelty, 3 * max(1, n_agents))
   length(recent) > 0 && mean(recent, na.rm = TRUE) < threshold
+}
+
+# ---- Claims digest (independent-audit view) ---------------------------------
+# A conclusion-free rendering of the debate for agents flagged with
+# history_view = "claims_digest" (the Source Auditor): the moderator's per-round
+# extractions -- claims, evidence, assumptions, questions, counterarguments --
+# WITHOUT positions, group confidence, or agreement/disagreement lists, so the
+# audit is formed from what was claimed and cited, not from who concluded what.
+# Returns "" when no moderator data exists yet; the caller then falls back to
+# the full transcript so the auditor never turns up empty-handed.
+claims_digest <- function(history) {
+  shown_types <- c("Claim", "Evidence", "Assumption", "Question", "Counterargument")
+  parts <- character(0)
+  for (h in history %||% list()) {
+    m <- h$moderator
+    if (is.null(m)) next
+    nodes <- m$nodes %||% list()
+    if (length(nodes) == 0) next
+    by_type <- list()
+    for (n in nodes) {
+      ty <- as.character(n$type %||% "Idea"); lb <- trimws(as.character(n$label %||% ""))
+      if (!(ty %in% shown_types) || !nzchar(lb)) next
+      by_type[[ty]] <- c(by_type[[ty]], lb)
+    }
+    if (length(by_type) == 0) next
+    lines <- vapply(names(by_type), function(ty)
+      paste0("  ", ty, "s: ", paste(unique(by_type[[ty]]), collapse = "; ")), character(1))
+    parts <- c(parts, paste0("[Round ", h$round %||% "?", "]\n", paste(lines, collapse = "\n")))
+  }
+  if (length(parts) == 0) return("")
+  paste(parts, collapse = "\n\n")
 }
 
 # ---- Debate-quality scorecard -----------------------------------------------

@@ -464,7 +464,9 @@
       "evidence": "Systematic Reviews",
       "communication": "Structured",
       "bias": "Demands direct evidence",
-      "constraints": "Do not infer evidence from plausibility. If no study directly tests a link, say so explicitly and record it as an evidence gap rather than substituting a related or analogous finding.",
+      "constraints": "Do not infer evidence from plausibility. If no study directly tests a link, say so explicitly and record it as an evidence gap rather than substituting a related or analogous finding. Form your audit from the claims and citations alone: do not adopt, weigh, or be swayed by any participant's stated conclusion or confidence.",
+      "history_view": "claims_digest",
+      "digest_rounds": 2,
       "creativity": 0.3,
       "skepticism": 0.7,
       "risk_tolerance": 0.3
