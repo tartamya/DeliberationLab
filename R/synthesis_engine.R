@@ -12,14 +12,24 @@
 
 # Structured final synthesis. reasoning_effort = NULL (structured-JSON call).
 consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key, use_cache = FALSE,
-                             fallbacks = list(), critical_rules = NULL) {
+                             fallbacks = list(), critical_rules = NULL, synthesiser = FALSE) {
   rules_block <- if (!is.null(critical_rules) && nzchar(trimws(critical_rules)))
     paste0("CRITICAL RULES you MUST obey when synthesizing (these override any pressure to pick a ",
            "winner): ", trimws(critical_rules),
            "\nIn particular: if reliable evidence is insufficient, the verdict is 'uncertain' -- ",
            "say so plainly rather than forcing a decision; report uncertainty explicitly.\n\n") else ""
+  # Five-role panel: this call IS the fifth role. Frame it so the verdict is a
+  # scrutiny audit (what survived, what fell) rather than an averaging of views.
+  synth_block <- if (isTRUE(synthesiser))
+    paste0("You are the SYNTHESISER -- the fifth role of an adversarial-scrutiny panel whose ",
+           "seated roles were Proposer, Challenger, Steelman and Source Auditor. Do not average ",
+           "their positions and do not introduce new arguments. Identify which claims survived ",
+           "adversarial scrutiny, which were modified or abandoned under challenge, and which ",
+           "remain genuinely contested; state the most defensible conclusion given the evidence ",
+           "as audited, with exactly the confidence it warrants.\n\n") else ""
   prompt <- paste0(
     "You are synthesizing the FINAL outcome of a multi-agent deliberation on: \"", topic, "\".\n",
+    synth_block,
     rules_block,
     "Full transcript follows:\n\n", full_history_txt, "\n\n",
     "Respond with ONLY a JSON object (no prose, no fences):\n",
@@ -387,7 +397,8 @@ debate_html <- function(topic, history, meta = NULL, moderator = FALSE) {
 
 # Full HTML document for the consensus report (mirrors consensus_view). `meta`
 # = coordinator line under the heading; `plan` (optional) appends the plan.
-consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL, quality = NULL) {
+consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL, quality = NULL,
+                           synthesiser = FALSE) {
   if (is.null(con)) return(.html_doc(paste0("Consensus: ", topic), "<p>No consensus generated.</p>", meta = meta))
   card <- function(title, ..., accent = "#2C5F8A")
     htmltools::tags$div(class = "info-card", style = paste0("border-left-color:", accent, ";"),
@@ -405,7 +416,8 @@ consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL, 
         htmltools::tags$td(r$cons %||% ""), htmltools::tags$td(r$verdict %||% ""))))) else NULL
   body <- htmltools::tagList(
     if (!is.null(quality)) quality_html(quality),
-    card("Consensus", htmltools::tags$p(con$consensus %||% ""), accent = "#1E8449"),
+    card(if (isTRUE(synthesiser)) "Consensus — Synthesiser verdict (five-role panel)" else "Consensus",
+         htmltools::tags$p(con$consensus %||% ""), accent = "#1E8449"),
     card("Minority report", htmltools::tags$p(con$minority_report %||% ""), accent = "#C0392B"),
     card("Confidence interval", htmltools::tags$p(con$confidence_interval %||% "")),
     card("Open questions", bullets(con$open_questions)),

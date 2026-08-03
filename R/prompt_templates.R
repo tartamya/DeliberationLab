@@ -242,3 +242,43 @@ build_planner_messages <- function(topic, cfg, n_agents_hint = NULL, problem_det
                  "Design the deliberation now.")
   list(list(role = "system", content = sys), list(role = "user", content = user))
 }
+
+# Five-role variant (two-layer architecture): the four seated epistemic
+# functions are FIXED -- the planner's job is to assign each one a
+# topic-appropriate DOMAIN LENS (a Challenger challenging as a clinical
+# pharmacologist finds different weaknesses than one challenging as a
+# statistician). The fifth role, Synthesiser, is played by the consensus
+# engine after the debate, so it is not part of the panel the planner designs.
+build_planner_messages_five_role <- function(topic, cfg, problem_details = NULL) {
+  vocab <- function(items, field = "name") paste(cfg_names(items, field), collapse = ", ")
+  sys <- paste0(
+    "You are the PLANNER for a multi-agent deliberation using a FIXED five-role adversarial-",
+    "scrutiny panel. Four roles debate -- Proposer (builds the strongest case), Challenger ",
+    "(attacks it), Steelman (tests whether the critique is fair), Source Auditor (checks what ",
+    "the evidence actually says) -- and a Synthesiser writes the verdict afterwards; you do NOT ",
+    "assign the Synthesiser.\n\n",
+    "Your job is NOT to choose the roles. It is to assign each of the four fixed roles a DOMAIN ",
+    "LENS suited to this topic: the disciplinary standpoint from which that role does its work ",
+    "(e.g. for a drug question the Challenger might challenge as a clinical pharmacologist and ",
+    "the Source Auditor audit as a biostatistician). Also design the dimensions and questions.\n\n",
+    "Available vocabulary (prefer these where they fit):\n",
+    "- Discussion dimensions: ", vocab(cfg$dimensions), "\n",
+    "- Reasoning styles: ", vocab(cfg$reasoning_styles), "\n",
+    "- Evidence types: ", vocab(cfg$evidence_types), "\n\n",
+    "If the problem details contain explicit design instructions (dimensions, questions, specific ",
+    "domain lenses), honour them exactly.\n\n",
+    "Respond with ONLY a single JSON object (no prose, no markdown fences) with this schema:\n",
+    '{"experts": [{"role": "Proposer"|"Challenger"|"Steelman"|"Source Auditor", ',
+    '"lens": string (the domain lens, e.g. "clinical pharmacology"), ',
+    '"reasoning": string, "evidence": string, "why": string}]  -- exactly these four roles, ',
+    'in this order, ',
+    '"dimensions": [{"name": string, "importance": number, "why": string}], ',
+    '"debate_questions": [string], ',
+    '"expected_agreements": [string], "expected_controversies": [string], ',
+    '"required_evidence": [string], "rationale": string}'
+  )
+  details_block <- if (!is.null(problem_details) && nzchar(trimws(problem_details)))
+    paste0("\n\nProblem details / user instructions:\n", trimws(problem_details), "\n") else ""
+  user <- paste0("Topic: ", topic, "\n", details_block, "Assign the domain lenses and design the deliberation now.")
+  list(list(role = "system", content = sys), list(role = "user", content = user))
+}

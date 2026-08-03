@@ -9,6 +9,74 @@
 # so the app never dead-ends. Nothing here is topic-specific.
 # =============================================================================
 
+# The five-role panel (from the adversarial-scrutiny model): panel label as it
+# appears in the transcript -> library role that supplies constraints and dial
+# presets. The Synthesiser is deliberately absent -- the consensus engine plays
+# it after the debate, so seating it would double-count.
+.FIVE_ROLE_PANEL <- list(
+  list(panel = "Proposer",       lib = "Proponent / Causal Advocate"),
+  list(panel = "Challenger",     lib = "Skeptic / Falsifier"),
+  list(panel = "Steelman",       lib = "Steelman"),
+  list(panel = "Source Auditor", lib = "Empirical Evidence Auditor"))
+
+# Normalize a five-role planner result: whatever the LLM returned, the panel is
+# ALWAYS the four canonical roles in canonical order -- only the domain lenses
+# and per-role reasoning/evidence come from the model (missing entries fall
+# back to the library role's own defaults via empty overrides).
+.normalize_plan_five_role <- function(parsed, cfg) {
+  as_chr_list <- function(x) if (is.null(x)) list() else as.list(unlist(x, use.names = FALSE))
+  got <- parsed$experts %||% list()
+  find_entry <- function(panel_name) {
+    for (e in got) if (grepl(panel_name, as.character(e$role %||% ""), ignore.case = TRUE)) return(e)
+    NULL
+  }
+  experts <- lapply(.FIVE_ROLE_PANEL, function(slot) {
+    e <- find_entry(slot$panel)
+    lens <- trimws(as.character(e$lens %||% ""))
+    list(role = slot$lib, name = slot$panel,
+         # the lens becomes the agent's expertise; shown as "Challenger" whose
+         # expertise is e.g. "clinical pharmacology"
+         expertise = lens,
+         reasoning = as.character(e$reasoning %||% ""),
+         evidence = as.character(e$evidence %||% ""),
+         why = as.character(e$why %||% if (nzchar(lens)) paste0("Exercises the ", slot$panel, " function through a ", lens, " lens.") else ""))
+  })
+  dims <- lapply(parsed$dimensions %||% list(), function(d) {
+    list(name = as.character(d$name %||% "Uncategorized"),
+         importance = suppressWarnings(as.numeric(d$importance %||% 0.6)),
+         why = as.character(d$why %||% ""))
+  })
+  list(
+    dimensions = dims,
+    experts = experts,
+    debate_questions = as_chr_list(parsed$debate_questions),
+    recommended_mode = "Adversarial Scrutiny",
+    recommended_moderator = "Neutral",
+    expected_agreements = as_chr_list(parsed$expected_agreements),
+    expected_controversies = as_chr_list(parsed$expected_controversies),
+    required_evidence = as_chr_list(parsed$required_evidence),
+    recommended_num_agents = length(experts),
+    rationale = as.character(parsed$rationale %||% ""),
+    panel = "five_role",
+    source = "llm"
+  )
+}
+
+# LLM-free five-role fallback: the fixed panel with no domain lenses (each role
+# keeps its library expertise), so the app never dead-ends in this mode either.
+planner_heuristic_five_role <- function(topic, cfg) {
+  experts <- lapply(.FIVE_ROLE_PANEL, function(slot)
+    list(role = slot$lib, name = slot$panel, expertise = "", reasoning = "", evidence = "",
+         why = paste0("Fixed ", slot$panel, " function (heuristic fallback; no topic-specific lens).")))
+  base <- planner_heuristic(topic, cfg, n_agents_hint = NULL)
+  base$experts <- experts
+  base$recommended_mode <- "Adversarial Scrutiny"
+  base$recommended_moderator <- "Neutral"
+  base$recommended_num_agents <- length(experts)
+  base$panel <- "five_role"
+  base
+}
+
 # Normalize a planner LLM result into the canonical plan shape, coercing types
 # and clamping the agent count to a sane range.
 .normalize_plan <- function(parsed, cfg) {
@@ -20,6 +88,7 @@
   })
   experts <- lapply(parsed$experts %||% list(), function(e) {
     list(role = as.character(e$role %||% "Generalist Facilitator"),
+         name = NULL, expertise = "",
          reasoning = as.character(e$reasoning %||% ""),
          evidence = as.character(e$evidence %||% ""),
          why = as.character(e$why %||% ""))
@@ -38,6 +107,7 @@
     required_evidence = as_chr_list(parsed$required_evidence),
     recommended_num_agents = n,
     rationale = as.character(parsed$rationale %||% ""),
+    panel = "free",
     source = "llm"
   )
 }
@@ -75,6 +145,7 @@ planner_heuristic <- function(topic, cfg, n_agents_hint = NULL) {
     expected_controversies = list("How to weigh competing dimensions against each other."),
     required_evidence = unique(unlist(lapply(pick, function(r) r$evidence))),
     recommended_num_agents = length(experts), rationale = "Heuristic fallback (LLM planner unavailable).",
+    panel = "free",
     source = "heuristic"
   )
 }
@@ -83,11 +154,15 @@ planner_heuristic <- function(topic, cfg, n_agents_hint = NULL) {
 # failure. reasoning_effort is deliberately NULL: this is a structured-JSON
 # call and reasoning tokens would starve the JSON output budget.
 run_planner <- function(topic, cfg, provider_id, api_key, n_agents_hint = NULL, use_cache = TRUE,
-                        problem_details = NULL, fallbacks = list()) {
+                        problem_details = NULL, fallbacks = list(), panel = "free") {
   if (is.null(topic) || nchar(trimws(topic)) == 0) {
     return(list(ok = FALSE, error = "Empty topic.", plan = NULL))
   }
-  msgs <- build_planner_messages(topic, cfg, n_agents_hint, problem_details = problem_details)
+  five <- identical(panel, "five_role")
+  msgs <- if (five) build_planner_messages_five_role(topic, cfg, problem_details = problem_details)
+          else build_planner_messages(topic, cfg, n_agents_hint, problem_details = problem_details)
+  fallback_plan <- function() if (five) planner_heuristic_five_role(topic, cfg)
+                              else planner_heuristic(topic, cfg, n_agents_hint)
   # 4000 tokens + a self-correcting retry (via llm_json): the plan JSON is large
   # and TRUNCATION is the most common cause of an unparseable reply. `fallbacks`
   # lets a failed/timed-out meta provider hand off to a working one.
@@ -96,13 +171,15 @@ run_planner <- function(topic, cfg, provider_id, api_key, n_agents_hint = NULL, 
   meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider)
   if (!isTRUE(r$ok)) {
     return(c(list(ok = TRUE, error = paste("LLM planner failed, used heuristic:", r$error),
-                  plan = planner_heuristic(topic, cfg, n_agents_hint)), meta))
+                  plan = fallback_plan()), meta))
   }
   if (is.null(r$parsed)) {
     return(c(list(ok = TRUE,
                   error = paste0("Planner returned non-JSON after a retry; used heuristic. Model output began: ",
                                  json_snippet(r$text)),
-                  plan = planner_heuristic(topic, cfg, n_agents_hint)), meta))
+                  plan = fallback_plan()), meta))
   }
-  c(list(ok = TRUE, error = NULL, plan = .normalize_plan(parsed = r$parsed, cfg)), meta)
+  plan <- if (five) .normalize_plan_five_role(parsed = r$parsed, cfg)
+          else .normalize_plan(parsed = r$parsed, cfg)
+  c(list(ok = TRUE, error = NULL, plan = plan), meta)
 }

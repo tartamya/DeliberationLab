@@ -238,7 +238,15 @@ ui <- page_navbar(
           br(), br(),
           textInput("coordinator", "Debate coordinator", value = "",
                     placeholder = "Name shown under the heading of every exported PDF"),
-          numericInput("planner_n_hint", "Target number of agents (hint)", value = 4, min = 2, max = 20),
+          radioButtons("panel_design", "Panel design",
+                       choices = c("Five-role adversarial scrutiny (Proposer / Challenger / Steelman / Source Auditor + Synthesiser verdict)" = "five_role",
+                                   "Planner's free choice of experts" = "free"),
+                       selected = "five_role"),
+          helpText("Five-role: the four debating roles are fixed; the Planner assigns each a ",
+                   "topic-specific domain lens, and the consensus step acts as the Synthesiser. ",
+                   "Free choice: the Planner designs the panel from the full role library (previous behaviour)."),
+          conditionalPanel("input.panel_design == 'free'",
+            numericInput("planner_n_hint", "Target number of agents (hint)", value = 4, min = 2, max = 20)),
           actionButton("run_planner", "Run Planner", class = "btn-primary"),
           br(), br(),
           actionButton("apply_plan_agents", "Build participants from plan", class = "btn-success"),
@@ -630,7 +638,8 @@ server <- function(input, output, session) {
       out <- run_planner(input$topic, cfg, input$meta_provider, key,
                          n_agents_hint = n_hint, use_cache = input$use_cache,
                          problem_details = input$problem_details,
-                         fallbacks = meta_fallbacks(input$meta_provider))
+                         fallbacks = meta_fallbacks(input$meta_provider),
+                         panel = input$panel_design %||% "five_role")
     })
     rv$plan <- out$plan
     rv$plan_msg <- out$error
@@ -650,8 +659,13 @@ server <- function(input, output, session) {
     if (is.null(p)) return(p("Run the planner to design a deliberation."))
     dim_items <- lapply(p$dimensions, function(d)
       tags$li(strong(d$name), sprintf(" (importance %.2f) ", d$importance %||% NA), em(d$why)))
-    expert_items <- lapply(p$experts, function(e)
-      tags$li(strong(e$role), " -- ", e$reasoning, " / ", e$evidence, " ", em(e$why)))
+    expert_items <- lapply(p$experts, function(e) {
+      # Five-role plans: e$name is the panel label ("Challenger") and
+      # e$expertise its planner-assigned domain lens.
+      label <- e$name %||% e$role
+      lens <- if (nzchar(e$expertise %||% "")) paste0(" [lens: ", e$expertise, "]") else ""
+      tags$li(strong(label), lens, " -- ", e$reasoning, " / ", e$evidence, " ", em(e$why))
+    })
     tags$div(
       info_card(paste0("Source: ", p$source, " | recommended agents: ", p$recommended_num_agents),
                 tags$p(em(p$rationale))),
@@ -1342,14 +1356,25 @@ server <- function(input, output, session) {
             # Try the turn; on error, remember the bad slot, reallocate to a fresh
             # one (local-first for local agents), and retry until one works or the
             # pool is exhausted (then the [ERROR:] placeholder stands, as before).
+            # "Commit before you converse": in a mode flagged independent_first_round
+            # (Adversarial Scrutiny), round-1 turns are formed blind -- each agent
+            # sees the topic and problem details but no same-round peers, so first
+            # positions are independent judgments, not reactions to whoever spoke
+            # first. From round 2 the full history flows as usual.
+            blind <- r == 1 && isTRUE(mode_cfg$independent_first_round)
+            hist_for_turn <- if (blind) Filter(function(h) (h$round %||% 0) < r, rv$history) else rv$history
             turn <- NULL
             repeat {
-              turn <- run_turn(cfg, a, phase, topic, rv$history, rv$kg, mode_name, obj_fragment,
+              # A blind turn gets NO same-round signals: history is filtered above,
+              # and group confidence / provisional consensus are withheld too --
+              # analytics update per turn, so they would leak the peers' positions
+              # into a round that is supposed to produce independent judgments.
+              turn <- run_turn(cfg, a, phase, topic, hist_for_turn, rv$kg, mode_name, obj_fragment,
                                dims_txt, r, resolve_api_key(cfg, a$provider, rv$ui_keys),
                                max_tokens, temperature, reff,
-                               current_confidence = if (!is.null(rv$analytics) && nrow(rv$analytics) > 0)
+                               current_confidence = if (!blind && !is.null(rv$analytics) && nrow(rv$analytics) > 0)
                                  paste0(round(mean(rv$analytics$confidence, na.rm = TRUE)), "%") else NULL,
-                               current_consensus = if (!is.null(rv$consensus)) rv$consensus$consensus else NULL,
+                               current_consensus = if (!blind && !is.null(rv$consensus)) rv$consensus$consensus else NULL,
                                language = lang, use_cache = use_cache,
                                problem_details = pdetails, critical_rules = crules)
               if (isTRUE(turn$ok)) break
@@ -1548,7 +1573,8 @@ server <- function(input, output, session) {
       res <- consensus_engine(cfg, input$topic, export_txt(rv$history), input$meta_provider, meta_key(),
                               use_cache = input$use_cache,
                               fallbacks = meta_fallbacks(input$meta_provider),
-                              critical_rules = if (!identical(input$apply_rules_consensus, FALSE)) input$critical_rules else NULL)
+                              critical_rules = if (!identical(input$apply_rules_consensus, FALSE)) input$critical_rules else NULL,
+                              synthesiser = identical(rv$plan$panel %||% "", "five_role"))
     })
     if (!isTRUE(res$ok)) {
       log_event("ERROR", paste("Consensus failed:", res$error))
@@ -1597,7 +1623,8 @@ server <- function(input, output, session) {
       quality <- dq()
       ok <- if (isTRUE(rv$running)) FALSE else
         tryCatch({ html_to_pdf(consensus_html(input$topic, rv$consensus, meta = meta, plan = plan,
-                                              kg_png = kg_png, quality = quality), file); TRUE },
+                                              kg_png = kg_png, quality = quality,
+                                              synthesiser = identical(rv$plan$panel %||% "", "five_role")), file); TRUE },
                  error = function(e) FALSE)
       if (!ok) text_to_pdf(consensus_to_text(rv$consensus, input$topic, plan = plan, quality = quality), file,
                            title = paste("Consensus:", input$topic), subtitle = meta)

@@ -71,7 +71,9 @@ agent_from_role_record <- function(cfg, base, provider = NULL, overrides = list(
     cfg,
     name = overrides$name %||% base$name,
     role = base$name, category = base$category %||% "",
-    expertise = base$expertise %||% "",
+    # An expertise override is how the five-role planner attaches a topic-
+    # specific DOMAIN LENS to a fixed epistemic role (two-layer architecture).
+    expertise = if (nzchar(overrides$expertise %||% "")) overrides$expertise else (base$expertise %||% ""),
     reasoning = if (nzchar(overrides$reasoning %||% "")) overrides$reasoning else (base$reasoning %||% "Pragmatist"),
     evidence  = if (nzchar(overrides$evidence  %||% "")) overrides$evidence  else (base$evidence  %||% "Expert Consensus"),
     communication = base$communication %||% "", bias = base$bias %||% "",
@@ -101,7 +103,9 @@ agents_from_plan <- function(cfg, plan, providers) {
     e <- experts[[i]]
     prov <- providers[((i - 1) %% length(providers)) + 1]
     a <- agent_from_role(cfg, e$role, provider = prov,
-                         overrides = list(reasoning = e$reasoning %||% "", evidence = e$evidence %||% "",
+                         overrides = list(name = e$name %||% NULL,
+                                          expertise = e$expertise %||% "",
+                                          reasoning = e$reasoning %||% "", evidence = e$evidence %||% "",
                                           goal = e$why %||% ""))
     a$name <- unique_agent_name(a$name, agents)
     agents <- c(agents, list(a))

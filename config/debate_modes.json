@@ -154,6 +154,20 @@
         "revision": "Recommend amendments that would improve the proposal.",
         "closing": "State your final recommendation to the committee."
       }
+    },
+    {
+      "name": "Adversarial Scrutiny",
+      "description": "Five-role protocol (Proposer / Challenger / Steelman / Source Auditor; the consensus engine acts as Synthesiser). Independent openings, structured challenge, fairness-tested critique, source audit.",
+      "recommended_moderator": "Neutral",
+      "min_agents": 3,
+      "independent_first_round": true,
+      "phases": {
+        "opening": "Without reference to any other participant, state your independent opening per your role: your position or plan of attack/audit, the two strongest grounds for it, and the evidence you rely on.",
+        "response": "Perform your role on the debate so far: strengthen the case (Proposer); attack the weakest inferential step and state what alternative reading of the same evidence would overturn it (Challenger); test whether each standing objection engages the argument's strongest form (Steelman); report what the cited sources actually establish, claim by claim (Source Auditor).",
+        "cross_examination": "Name the single specific claim on which you and another participant are furthest apart. Ask them one pointed question about it, state explicitly what evidence would change your own view, and say whether that evidence exists.",
+        "revision": "Concede any point that genuine argument or audited evidence has won against you; restate your position with those revisions incorporated, and flag what remains unresolved.",
+        "closing": "State your final position: which of your claims survived scrutiny, which you modified or abandoned, and what remains genuinely uncertain. Do not introduce new arguments."
+      }
     }
   ]
 }
