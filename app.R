@@ -225,6 +225,18 @@ ui <- page_navbar(
                         placeholder = paste("Paste the full case, background, constraints, data...",
                                             "The Planner and every agent see this as context.",
                                             "(Longer text = more tokens per turn.)")),
+          selectInput("narrative_type", "Narrative / myth type (optional)",
+                      choices = c("None" = "",
+                                  setNames(cfg_names(CONFIG$narrative_types), cfg_names(CONFIG$narrative_types)),
+                                  "Custom..." = "__custom__")),
+          conditionalPanel("input.narrative_type == '__custom__'",
+            textAreaInput("narrative_type_custom", "Describe the narrative/myth type to engineer", rows = 3,
+                          placeholder = paste("e.g. A lullaby-cycle that encodes water discipline",
+                                              "for children of a drought region..."))),
+          helpText("When set, every agent (and the Planner) receives this as the NARRATIVE TARGET. ",
+                   "Pair it with the 'Narrative Forge' debate mode (the 8-stage myth-engineering loop: ",
+                   "problem → moral frames → candidate myths → critique → revision → human testing → ",
+                   "cultural mutation → further revision) and the Narrative roles from the participant library."),
           tags$label(class = "control-label", "Apply critical rules"),
           checkboxInput("apply_rules_debate", "During deliberation (every agent turn)", value = TRUE),
           checkboxInput("apply_rules_consensus", "At consensus (final verdict)", value = TRUE),
@@ -636,15 +648,34 @@ server <- function(input, output, session) {
     showNotification("Critical rules reset to the default set.", type = "message")
   })
 
+  # The selected narrative/myth type as a prompt line, or NULL when unset.
+  # Preset -> its configured fragment; Custom -> the user's own description.
+  narrative_fragment <- function() {
+    sel <- input$narrative_type %||% ""
+    if (!nzchar(sel)) return(NULL)
+    if (identical(sel, "__custom__")) {
+      d <- trimws(input$narrative_type_custom %||% "")
+      return(if (nzchar(d)) paste0("NARRATIVE TARGET (custom type): ", d) else NULL)
+    }
+    nt <- cfg_find(cfg$narrative_types, sel)
+    if (is.null(nt)) return(NULL)
+    paste0("NARRATIVE TARGET -- ", nt$name, ": ", nt$prompt_fragment %||% nt$description %||% "")
+  }
+
   observeEvent(input$run_planner, {
     req(nzchar(input$topic))
     key <- meta_key()
     # numericInput becomes NA when cleared; NA would break head()/messaging.
     n_hint <- if (is.null(input$planner_n_hint) || is.na(input$planner_n_hint)) NULL else input$planner_n_hint
     withProgress(message = "Planning deliberation...", value = 0.5, {
+      # The planner sees the narrative target as part of the brief, so it
+      # designs dimensions/lenses (or experts) for that kind of story.
+      pd <- input$problem_details
+      nf <- narrative_fragment()
+      if (!is.null(nf)) pd <- trimws(paste(pd %||% "", nf, sep = "\n\n"))
       out <- run_planner(input$topic, cfg, input$meta_provider, key,
                          n_agents_hint = n_hint, use_cache = input$use_cache,
-                         problem_details = input$problem_details,
+                         problem_details = pd,
                          fallbacks = meta_fallbacks(input$meta_provider),
                          panel = input$panel_design %||% "five_role")
     })
@@ -1217,7 +1248,8 @@ server <- function(input, output, session) {
     obj <- cfg_find(cfg$objectives, input$objective)
     build_turn_messages(input$topic, rv$history, kg_summary_text(rv$kg), a, cfg,
                         phase_instruction = phase, mode_name = input$mode,
-                        objective_fragment = obj$prompt_fragment %||% "",
+                        objective_fragment = trimws(paste(obj$prompt_fragment %||% "",
+                                                          narrative_fragment() %||% "", sep = "\n")),
                         round_number = input$preview_round, max_tokens = input$max_tokens,
                         dimensions_txt = dimensions_txt(),
                         language = if (nzchar(input$language)) input$language else NULL,
@@ -1286,6 +1318,10 @@ server <- function(input, output, session) {
     crules <- if (!identical(input$apply_rules_debate, FALSE)) input$critical_rules else ""
     n_rounds <- input$n_rounds; mode_cfg <- cfg_find(cfg$debate_modes, mode_name)
     obj_fragment <- (cfg_find(cfg$objectives, input$objective)$prompt_fragment) %||% ""
+    # Narrative target rides with the objective so every turn engineers the
+    # same kind of story (captured once at run start, like the objective).
+    nf <- narrative_fragment()
+    if (!is.null(nf)) obj_fragment <- trimws(paste(obj_fragment, nf, sep = "\n"))
     dims_txt <- dimensions_txt()
     meta_prov <- input$meta_provider; meta_k <- meta_key()
     meta_fb <- meta_fallbacks(meta_prov)   # meta-call provider failover list

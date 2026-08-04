@@ -156,6 +156,36 @@
       }
     },
     {
+      "name": "Narrative Forge",
+      "description": "Myth-engineering loop: human problem -> competing moral frames -> candidate myths -> adversarial critique -> revision -> human testing -> cultural mutation -> further revision. Best with the Narrative role set; run 8 rounds for the full loop (fewer rounds compress it, extra rounds deepen the later stages).",
+      "recommended_moderator": "Facilitator",
+      "min_agents": 3,
+      "phase_sequence": [
+        { "name": "Human problem",
+          "instruction": "Do not tell stories yet. Articulate the HUMAN PROBLEM beneath the topic: what pain, need, fear, or conflict a narrative would have to address, who feels it, and why existing stories fail them." },
+        { "name": "Competing moral frames",
+          "instruction": "Advance ONE moral frame for the problem -- a view of what is at stake, who owes what to whom, and what a good resolution would honour -- and contrast it explicitly with a frame another participant has advanced or could advance. Do not write the myth yet." },
+        { "name": "Candidate myths",
+          "instruction": "Produce or contribute to a CANDIDATE MYTH that embodies one of the moral frames on the table: characters, setting, central conflict, symbolic objects, and the arc's key beats. Per your role, either draft narrative or specify what the draft must contain." },
+        { "name": "Adversarial critique",
+          "instruction": "Attack the candidate myths per your role: propaganda potential, extremist appropriation, out-group creation, glorified obedience or violence, appropriated traditions, psychological mechanisms that misfire, structural weaknesses. Name the specific passage or element you are attacking." },
+        { "name": "Revision",
+          "instruction": "Revise the candidate myths against the critique: state which objections you accept and how the story changes, which you reject and why. The revision must be concrete -- changed characters, altered beats, new imagery -- not a promise to change." },
+        { "name": "Human testing",
+          "instruction": "Simulate reception: pick two distinct audiences (age, culture, disposition) and narrate honestly how each hears the current myth -- what resonates, what misfires, what is misread, where attention drops. Ground each reaction in a specific emotional mechanism." },
+        { "name": "Cultural mutation",
+          "instruction": "Project the myth's drift: how retellings would mutate it over years of transmission -- simplifications, appropriations, inversions, merchandising, schisms. Identify which mutations are benign, which are dangerous, and which parts of the story invite them." },
+        { "name": "Further revision",
+          "instruction": "Deliver the hardened final candidate: revise the myth against the observed mutations and misreadings, state what was changed and why, and name plainly the risks and disagreements that remain unresolved." }
+      ],
+      "phases": {
+        "opening": "Articulate the human problem beneath the topic that a narrative would have to address.",
+        "response": "Advance the myth-engineering work per your role: frames, candidate narrative, critique, or revision.",
+        "revision": "Revise the candidate myths against the strongest critique raised so far.",
+        "closing": "Deliver the final candidate myth, with remaining risks and disagreements stated plainly."
+      }
+    },
+    {
       "name": "Adversarial Scrutiny",
       "description": "Five-role protocol (Proposer / Challenger / Steelman / Source Auditor; the consensus engine acts as Synthesiser). Independent openings, structured challenge, fairness-tested critique, source audit.",
       "recommended_moderator": "Neutral",

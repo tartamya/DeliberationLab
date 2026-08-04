@@ -1,0 +1,45 @@
+{
+  "_comment": "Narrative / myth types for narrative-engineering deliberations. The selected type's prompt_fragment is injected into every agent turn as the NARRATIVE TARGET (and into the Planner's brief), so the whole panel engineers the same kind of story. Users may also type a custom description instead of choosing a preset. Add a type by adding one object -- no R changes.",
+  "narrative_types": [
+    {
+      "name": "Origin myth",
+      "description": "Explains how something came to be; grounds identity and meaning.",
+      "prompt_fragment": "Engineer an ORIGIN MYTH: a story that explains how the thing at issue came to be, grounding identity and shared meaning. It should answer 'why are things this way?' with narrative causes -- ancestors, first acts, primordial choices -- not analysis."
+    },
+    {
+      "name": "Hero's journey",
+      "description": "A transformation arc: call, ordeal, return with a gift.",
+      "prompt_fragment": "Engineer a HERO'S JOURNEY: a protagonist is called out of the ordinary, faces ordeals that transform them, and returns bearing a gift the community needs. The transformation must be earned through loss or sacrifice, not granted."
+    },
+    {
+      "name": "Parable",
+      "description": "A compact story carrying a transferable moral.",
+      "prompt_fragment": "Engineer a PARABLE: a short, concrete story whose events carry a transferable moral without stating it as doctrine. Everyday characters, one pivotal choice, an ending that lands the lesson through consequence rather than commentary."
+    },
+    {
+      "name": "Cautionary tale",
+      "description": "Dramatizes a failure mode and its consequences.",
+      "prompt_fragment": "Engineer a CAUTIONARY TALE: dramatize the failure mode at issue through a character who plausibly commits it, and let the consequences unfold with honest severity. The warning must emerge from the story's logic, not from moralizing."
+    },
+    {
+      "name": "Trickster tale",
+      "description": "Subverts authority and assumptions through cunning; holds ambiguity.",
+      "prompt_fragment": "Engineer a TRICKSTER TALE: a cunning figure subverts authority, rules, or settled assumptions, exposing what the order conceals. Preserve moral ambiguity -- the trickster should be neither hero nor villain, and the reader should be left productively unsettled."
+    },
+    {
+      "name": "Foundation myth",
+      "description": "Legitimates an institution, practice, or community charter.",
+      "prompt_fragment": "Engineer a FOUNDATION MYTH: a story that legitimates an institution, practice, or community -- its founding act, the price paid for it, and the obligation it lays on those who inherit it. Beware: this type is the most exposed to propaganda misuse; the Red Team should press hard."
+    },
+    {
+      "name": "Renewal myth",
+      "description": "Collapse and rebirth; hope on the far side of loss.",
+      "prompt_fragment": "Engineer a RENEWAL MYTH: an order collapses -- through its own flaw, catastrophe, or exhaustion -- and something genuinely new is reborn from what survives. The hope must be paid for; renewal that costs nothing persuades no one."
+    },
+    {
+      "name": "Fable",
+      "description": "Non-human actors; a pointed, memorable lesson.",
+      "prompt_fragment": "Engineer a FABLE: non-human actors -- animals, objects, forces -- enact a pointed lesson in a brief, memorable arc. The displacement into non-human characters should let the audience see their own behaviour without feeling accused."
+    }
+  ]
+}

@@ -18,6 +18,20 @@
 # closing; the round before final -> revision else reflection; other rounds
 # alternate response / cross_examination. Missing phases fall back sensibly.
 select_phase <- function(mode_cfg, round_number, n_rounds, agent_index = 1) {
+  # Ordered stage protocols (e.g. Narrative Forge's myth-engineering loop):
+  # `phase_sequence` is an array of {name, instruction} stages traversed in
+  # order. Rounds are mapped linearly onto the sequence -- round 1 is always
+  # the first stage and the final round the last, so a shorter run compresses
+  # the loop (skipping middles) rather than truncating its ending, and a longer
+  # run revisits stages. Takes precedence over the generic `phases` ladder.
+  seq_ph <- mode_cfg$phase_sequence %||% list()
+  if (length(seq_ph) > 0) {
+    len <- length(seq_ph)
+    idx <- if (n_rounds <= 1) 1 else 1 + round((round_number - 1) * (len - 1) / (n_rounds - 1))
+    idx <- max(1L, min(len, as.integer(idx)))
+    st <- seq_ph[[idx]]
+    return(paste0("[Stage ", idx, "/", len, " -- ", st$name %||% "", "] ", st$instruction %||% ""))
+  }
   phases <- mode_cfg$phases %||% list()
   get_phase <- function(nm) if (!is.null(phases[[nm]]) && nzchar(phases[[nm]])) phases[[nm]] else NULL
   fallback <- function() get_phase("response") %||% get_phase("opening") %||%

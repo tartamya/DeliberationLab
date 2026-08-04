@@ -60,6 +60,10 @@ load_config <- function(config_dir) {
     evidence_types   = .read_json(file.path(config_dir, "evidence_types.json"))$evidence_types,
     output_formats   = .read_json(file.path(config_dir, "output_formats.json"))$output_formats,
     objectives       = .read_json(file.path(config_dir, "objectives.json"))$objectives,
+    # Narrative/myth types for narrative-engineering runs. Optional file --
+    # absent means the selector simply offers no presets (custom still works).
+    narrative_types  = tryCatch(.read_json(file.path(config_dir, "narrative_types.json"))$narrative_types,
+                                error = function(e) list()),
     # Pricing is optional -- if the file is missing, costs fall back to a zero
     # default so the app still runs (just reports $0).
     pricing          = tryCatch(.read_json(file.path(config_dir, "pricing.json")),
