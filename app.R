@@ -679,6 +679,9 @@ server <- function(input, output, session) {
                          fallbacks = meta_fallbacks(input$meta_provider),
                          panel = input$panel_design %||% "five_role")
     })
+    # Stamp the narrative target onto the plan so the plan PDF (the design
+    # record) shows what kind of story the deliberation was planned around.
+    if (!is.null(out$plan) && !is.null(nf)) out$plan$narrative <- nf
     rv$plan <- out$plan
     rv$plan_msg <- out$error
     if (!is.null(out$error)) log_event("WARN", paste("Planner:", out$error))
@@ -1317,6 +1320,14 @@ server <- function(input, output, session) {
     # ON, so we test against FALSE rather than isTRUE, which would treat NULL as off.)
     crules <- if (!identical(input$apply_rules_debate, FALSE)) input$critical_rules else ""
     n_rounds <- input$n_rounds; mode_cfg <- cfg_find(cfg$debate_modes, mode_name)
+    # Staged protocols (phase_sequence modes like Narrative Forge) ignore the
+    # novelty auto-stop: revision/testing stages rework existing material, so
+    # novelty naturally plateaus -- stopping there would skip the remaining
+    # stages, including the final candidate the whole loop builds toward.
+    staged_mode <- length(mode_cfg$phase_sequence %||% list()) > 0
+    if (staged_mode && isTRUE(input$auto_stop))
+      log_event("INFO", paste0("Auto-stop ignored: '", mode_name,
+                               "' is a staged protocol and always completes its stages."))
     obj_fragment <- (cfg_find(cfg$objectives, input$objective)$prompt_fragment) %||% ""
     # Narrative target rides with the objective so every turn engineers the
     # same kind of story (captured once at run start, like the objective).
@@ -1502,7 +1513,7 @@ server <- function(input, output, session) {
                            type = "error", duration = 10); FALSE
         })
         if (!isTRUE(ok)) { finish_run(); return(invisible(NULL)) }
-        stop_now <- isTRUE(input$auto_stop) && r >= 3 &&
+        stop_now <- isTRUE(input$auto_stop) && !staged_mode && r >= 3 &&
           auto_stop_reached(rv$analytics, length(active_agents))
         if (stop_now) {
           log_event("INFO", paste0("Auto-stopped at round ", r, " (novelty plateaued)."))
@@ -1649,7 +1660,8 @@ server <- function(input, output, session) {
                               use_cache = input$use_cache,
                               fallbacks = meta_fallbacks(input$meta_provider),
                               critical_rules = if (!identical(input$apply_rules_consensus, FALSE)) input$critical_rules else NULL,
-                              synthesiser = identical(rv$plan$panel %||% "", "five_role"))
+                              synthesiser = identical(rv$plan$panel %||% "", "five_role"),
+                              extra_context = narrative_fragment())
     })
     if (!isTRUE(res$ok)) {
       log_event("ERROR", paste("Consensus failed:", res$error))
@@ -1912,7 +1924,9 @@ server <- function(input, output, session) {
         auto_stop = input$auto_stop, use_cache = input$use_cache,
         active_dimensions = input$active_dimensions, models = models,
         coordinator = input$coordinator, include_plan_in_consensus = input$include_plan_in_consensus,
-        include_moderator_in_transcript = input$include_moderator_in_transcript
+        include_moderator_in_transcript = input$include_moderator_in_transcript,
+        narrative_type = input$narrative_type, narrative_type_custom = input$narrative_type_custom,
+        panel_design = input$panel_design
       )
     )
     save_session(state, name)
@@ -1972,6 +1986,9 @@ server <- function(input, output, session) {
     if (!is.null(cf$coordinator))      updateTextInput(session, "coordinator", value = cf$coordinator)
     if (!is.null(cf$include_plan_in_consensus)) updateCheckboxInput(session, "include_plan_in_consensus", value = cf$include_plan_in_consensus)
     if (!is.null(cf$include_moderator_in_transcript)) updateCheckboxInput(session, "include_moderator_in_transcript", value = cf$include_moderator_in_transcript)
+    if (!is.null(cf$narrative_type))        updateSelectInput(session, "narrative_type", selected = cf$narrative_type)
+    if (!is.null(cf$narrative_type_custom)) updateTextAreaInput(session, "narrative_type_custom", value = cf$narrative_type_custom)
+    if (!is.null(cf$panel_design))          updateRadioButtons(session, "panel_design", selected = cf$panel_design)
     if (!is.null(cf$active_dimensions)) updateCheckboxGroupInput(session, "active_dimensions", selected = cf$active_dimensions)
     for (id in names(cf$models %||% list())) {
       v <- cf$models[[id]]

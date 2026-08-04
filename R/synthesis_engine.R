@@ -12,7 +12,8 @@
 
 # Structured final synthesis. reasoning_effort = NULL (structured-JSON call).
 consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key, use_cache = FALSE,
-                             fallbacks = list(), critical_rules = NULL, synthesiser = FALSE) {
+                             fallbacks = list(), critical_rules = NULL, synthesiser = FALSE,
+                             extra_context = NULL) {
   rules_block <- if (!is.null(critical_rules) && nzchar(trimws(critical_rules)))
     paste0("CRITICAL RULES you MUST obey when synthesizing (these override any pressure to pick a ",
            "winner): ", trimws(critical_rules),
@@ -27,8 +28,14 @@ consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key,
            "adversarial scrutiny, which were modified or abandoned under challenge, and which ",
            "remain genuinely contested; state the most defensible conclusion given the evidence ",
            "as audited, with exactly the confidence it warrants.\n\n") else ""
+  # Deliberation-level context the transcript alone doesn't carry -- e.g. the
+  # NARRATIVE TARGET of a myth-engineering run, so the verdict delivers the
+  # right KIND of final candidate.
+  context_block <- if (!is.null(extra_context) && nzchar(trimws(extra_context)))
+    paste0(trimws(extra_context), "\n\n") else ""
   prompt <- paste0(
     "You are synthesizing the FINAL outcome of a multi-agent deliberation on: \"", topic, "\".\n",
+    context_block,
     synth_block,
     rules_block,
     "Full transcript follows:\n\n", full_history_txt, "\n\n",
@@ -331,6 +338,7 @@ plan_html <- function(plan) {
   as.character(htmltools::tagList(
     htmltools::tags$h2("Deliberation Plan"),
     card("Design", htmltools::tags$p(design_line),
+         if (nzchar(plan$narrative %||% "")) htmltools::tags$p(htmltools::tags$b(plan$narrative)) else NULL,
          if (nzchar(plan$rationale %||% "")) htmltools::tags$p(htmltools::tags$em(plan$rationale)) else NULL),
     card("Dimensions", dims),
     card("Experts", experts),
@@ -361,6 +369,7 @@ plan_to_text <- function(plan, topic = "") {
     if (nzchar(topic)) paste0("Topic: ", topic, "\n") else "",
     "Panel: ", if (identical(plan$panel %||% "", "five_role")) "five-role adversarial scrutiny" else "free choice",
     " | Source: ", plan$source %||% "?", " | Recommended agents: ", plan$recommended_num_agents %||% "?", "\n",
+    if (nzchar(plan$narrative %||% "")) paste0(plan$narrative, "\n") else "",
     if (nzchar(plan$rationale %||% "")) paste0("Rationale: ", plan$rationale, "\n") else "",
     "\n## Dimensions\n", dims,
     "\n\n## Experts\n", experts,
