@@ -137,16 +137,25 @@ compute_analytics <- function(history, topic) {
   out
 }
 
-# Incremental analytics: append the LAST turn's row to an existing table.
-# Rebuilding the whole table each turn is quadratic per call (novelty compares
-# against all prior turns) and was measured at ~18s/call by turn 320; the
-# append computes one row. Falls back to a full recompute whenever the table
-# doesn't line up with the history (fresh run, loaded session, cleared state),
-# so it can never drift from what compute_analytics would produce.
+# Incremental analytics: extend an existing table to cover the whole history,
+# computing only the rows it does not already have. Rebuilding from scratch is
+# quadratic per call (novelty compares each turn against all prior turns) and
+# was measured at ~18s/call by turn 320.
+#
+# The caller updates analytics once per ROUND, by which point the history has
+# grown by one entry PER AGENT -- so this must append however many rows are
+# missing, not just one. (Assuming a single new row made the incremental path
+# unreachable in any multi-agent debate, silently reverting to full recompute.)
+#
+# Falls back to a full recompute whenever the existing table cannot be a prefix
+# of this history (fresh run, loaded session, cleared state), so the result can
+# never drift from what compute_analytics would produce.
 analytics_append <- function(analytics, history, topic) {
   n <- length(history)
-  if (is.null(analytics) || nrow(analytics) != n - 1) return(compute_analytics(history, topic))
-  out <- rbind(analytics, .analytics_row(history, n, topic))
+  have <- if (is.null(analytics)) 0L else nrow(analytics)
+  if (n == 0 || have >= n) return(compute_analytics(history, topic))
+  new_rows <- lapply(seq.int(have + 1L, n), function(i) .analytics_row(history, i, topic))
+  out <- rbind(analytics, do.call(rbind, new_rows))
   rownames(out) <- NULL
   out
 }
