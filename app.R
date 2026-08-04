@@ -688,7 +688,15 @@ server <- function(input, output, session) {
     })
     # Stamp the narrative target onto the plan so the plan PDF (the design
     # record) shows what kind of story the deliberation was planned around.
-    if (!is.null(out$plan) && !is.null(nf)) out$plan$narrative <- nf
+    # Also pin the plan's recommendation to Narrative Forge: the target only
+    # operates in that mode, so a plan recommending any other mode (five-role
+    # plans always recommend Adversarial Scrutiny) would make "Apply
+    # recommended mode" silently disable the target the user just configured.
+    if (!is.null(out$plan) && !is.null(nf)) {
+      out$plan$narrative <- nf
+      out$plan$recommended_mode <- "Narrative Forge"
+      out$plan$recommended_moderator <- "Facilitator"
+    }
     rv$plan <- out$plan
     rv$plan_msg <- out$error
     if (!is.null(out$error)) log_event("WARN", paste("Planner:", out$error))
