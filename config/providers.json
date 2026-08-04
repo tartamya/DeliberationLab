@@ -62,7 +62,9 @@
       "reasoning_effort_levels": [
         "low",
         "high"
-      ]
+      ],
+      "live_search": { "enabled": true, "mode": "auto" },
+      "_note": "WEB-CONNECTED via xAI Live Search (mode=auto: the model searches only when it judges a query needs it, not on every turn). Citations, when returned, are appended to the turn as a 'Sources:' list -- same mechanism as Perplexity. Live Search bills per SOURCE retrieved (~$0.025/source, xAI's own metering) on top of tokens; this is NOT reflected in the app's cost tracker, which only sums token cost -- check the Sources count in the transcript to gauge actual spend. To disable, set live_search.enabled to false here."
     },
     {
       "id": "sarvam",

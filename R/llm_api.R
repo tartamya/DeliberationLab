@@ -161,6 +161,17 @@ llm_count_tokens <- function(text) {
 # (Ollama, LM Studio, vLLM). Differences are all data in the provider spec:
 # endpoint, whether the key is needed, which reasoning_effort levels are legal,
 # and which max-tokens field name to use.
+# Attach xAI-style Live Search parameters to a chat-completions request body
+# when the provider config enables it (config/providers.json `live_search`).
+# Pure and network-free so it's independently testable. mode="auto" lets the
+# model decide per-turn whether search helps; "on" would force it every call.
+.with_live_search <- function(body, prov) {
+  if (isTRUE(prov$live_search$enabled %||% FALSE)) {
+    body$search_parameters <- list(mode = prov$live_search$mode %||% "auto", return_citations = TRUE)
+  }
+  body
+}
+
 .handler_openai_chat <- function(prov, messages, api_key, model, max_tokens, temperature, reasoning_effort) {
   if (isTRUE(prov$needs_key) && (is.null(api_key) || nchar(trimws(api_key)) == 0)) {
     return(list(ok = FALSE, text = NULL, error = paste0("Missing API key for ", prov$label, ".")))
@@ -170,6 +181,7 @@ llm_count_tokens <- function(text) {
   use_completion_field <- grepl("openai.com", prov$endpoint, fixed = TRUE)
   body <- list(model = model, messages = messages, temperature = temperature)
   if (use_completion_field) body$max_completion_tokens <- max_tokens else body$max_tokens <- max_tokens
+  body <- .with_live_search(body, prov)
 
   legal_levels <- unlist(prov$reasoning_effort_levels %||% list())
   if (!is.null(reasoning_effort) && nchar(trimws(reasoning_effort)) > 0 &&
@@ -196,6 +208,9 @@ llm_count_tokens <- function(text) {
   }
   if (!isTRUE(res$ok) && grepl("reasoning_effort", res$error %||% "", fixed = TRUE)) {
     body$reasoning_effort <- NULL; res <- post(body)
+  }
+  if (!isTRUE(res$ok) && grepl("search_parameters", res$error %||% "", fixed = TRUE)) {
+    body$search_parameters <- NULL; res <- post(body)   # model/endpoint doesn't support Live Search
   }
   if (!isTRUE(res$ok)) return(list(ok = FALSE, text = NULL, error = res$error))
 
@@ -228,9 +243,10 @@ llm_count_tokens <- function(text) {
     } else paste0(" (finish_reason=", finish_reason %||% "unknown", ")")
     return(list(ok = FALSE, text = NULL, error = paste0(prov$label, " returned empty content", hint)))
   }
-  # Web-connected providers (Perplexity) return citations; append them to the
-  # turn as a "Sources:" list so they flow into the transcript, exports and the
-  # moderator's view. No-op for providers that return no citations.
+  # Web-connected providers (Perplexity always; Grok when live_search fires)
+  # return citations; append them to the turn as a "Sources:" list so they
+  # flow into the transcript, exports and the moderator's view. No-op for
+  # providers/turns that return no citations.
   cites <- .format_citations(res$raw)
   if (nzchar(cites)) txt <- paste0(txt, cites)
   usage <- tryCatch(list(prompt_tokens = res$raw$usage$prompt_tokens %||% NA,
