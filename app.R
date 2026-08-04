@@ -251,6 +251,10 @@ ui <- page_navbar(
           actionButton("reset_critical_rules", "Reset to default rules",
                        class = "btn-sm btn-outline-secondary"),
           br(), br(),
+          textInput("debate_title", "Debate title", value = "",
+                    placeholder = "Short name used in all output filenames, e.g. Myth"),
+          helpText("Files are named <type>_<title>_<date-time>: Plan_Myth_..., ",
+                   "Deliberation_Myth_..., Consensus_Myth_... Leave blank to omit the title part."),
           textInput("coordinator", "Debate coordinator", value = "",
                     placeholder = "Name shown under the heading of every exported PDF"),
           radioButtons("panel_design", "Panel design",
@@ -713,7 +717,7 @@ server <- function(input, output, session) {
   # Save the current plan as a PDF (topic in the title, coordinator underneath,
   # same pattern as the consensus report: HTML->PDF with a plain-text fallback).
   output$dl_plan_pdf <- downloadHandler(
-    filename = function() paste0("deliberation-plan-", format(Sys.time(), "%Y%m%d-%H%M"), ".pdf"),
+    filename = function() out_filename("Plan", "pdf"),
     content = function(file) {
       ensure_writable(file)
       title <- paste0("Deliberation Plan: ", trimws(input$topic %||% ""))
@@ -1646,10 +1650,10 @@ server <- function(input, output, session) {
     datatable(idea_evolution_table(rv$kg, current_round), rownames = FALSE, options = list(dom = "tp"))
   })
   output$dl_graphml <- downloadHandler(
-    filename = function() "knowledge_graph.graphml",
+    filename = function() out_filename("KnowledgeGraph", "graphml"),
     content = function(file) { ensure_writable(file); export_graphml(rv$kg, file) })
   output$dl_kg_csv <- downloadHandler(
-    filename = function() "knowledge_graph.csv",
+    filename = function() out_filename("KnowledgeGraph", "csv"),
     content = function(file) {
       ensure_writable(file)
       nodes_out <- if (nrow(rv$kg$nodes) > 0) data.frame(record_type = "NODE", id = rv$kg$nodes$id,
@@ -1691,6 +1695,15 @@ server <- function(input, output, session) {
     c0 <- trimws(input$coordinator %||% "")
     if (nzchar(c0)) paste0("Debate coordinator: ", c0) else NULL
   }
+  # Uniform output filenames: <prefix>_<debate title>_<date-time>.<ext>.
+  # The title is sanitized for the filesystem; blank title drops that segment.
+  out_filename <- function(prefix, ext) {
+    t <- trimws(input$debate_title %||% "")
+    t <- gsub("[^A-Za-z0-9_-]+", "_", t)
+    t <- gsub("^_+|_+$", "", gsub("_+", "_", t))
+    paste0(prefix, if (nzchar(t)) paste0("_", t) else "", "_",
+           format(Sys.time(), "%Y-%m-%d_%H-%M"), ".", ext)
+  }
   # Plan to fold into the consensus report, when the checkbox is ticked.
   consensus_plan <- function() if (isTRUE(input$include_plan_in_consensus)) rv$plan else NULL
   # Debate-quality scorecard from the moderator/KG data (NULL until there's a run).
@@ -1705,7 +1718,7 @@ server <- function(input, output, session) {
     showNotification("Consensus copied to clipboard.", type = "message")
   })
   output$dl_consensus_pdf <- downloadHandler(
-    filename = function() "consensus.pdf",
+    filename = function() out_filename("Consensus", "pdf"),
     content = function(file) {
       # Exact on-screen format via headless Chrome; fall back to the plain-text
       # PDF if chromote/Chrome is unavailable so the download never fails.
@@ -1777,7 +1790,8 @@ server <- function(input, output, session) {
   output$dl_formatted <- downloadHandler(
     filename = function() {
       fmt <- cfg_find(cfg$output_formats, input$export_format)
-      paste0("deliberation_", gsub("[^A-Za-z0-9]", "_", input$export_format), ".", fmt$extension %||% "txt")
+      out_filename(paste0("Deliberation_", gsub("[^A-Za-z0-9]", "_", input$export_format)),
+                   fmt$extension %||% "txt")
     },
     content = function(file) { ensure_writable(file); writeLines(rv$formatted_output, file) })
   # Moderator-comments block for text/markdown transcripts, when requested.
@@ -1791,7 +1805,7 @@ server <- function(input, output, session) {
     showNotification("Debate transcript copied to clipboard.", type = "message")
   })
   output$dl_debate_pdf <- downloadHandler(
-    filename = function() "deliberation.pdf",
+    filename = function() out_filename("Deliberation", "pdf"),
     content = function(file) {
       meta <- coord_meta()
       ok <- if (isTRUE(rv$running)) FALSE else
@@ -1804,16 +1818,16 @@ server <- function(input, output, session) {
         text_to_pdf(body_txt, file, title = paste("Deliberation:", input$topic), subtitle = meta)
       }
     })
-  output$dl_txt <- downloadHandler("deliberation.txt", function(file) {
+  output$dl_txt <- downloadHandler(function() out_filename("Deliberation", "txt"), function(file) {
     ensure_writable(file)
     writeLines(paste0(export_txt(rv$history), mod_comments()), file) })
-  output$dl_md  <- downloadHandler("deliberation.md",  function(file) {
+  output$dl_md  <- downloadHandler(function() out_filename("Deliberation", "md"), function(file) {
     ensure_writable(file)
     writeLines(paste0(export_markdown(input$topic, rv$history), mod_comments()), file) })
-  output$dl_json <- downloadHandler("deliberation.json", function(file) {
+  output$dl_json <- downloadHandler(function() out_filename("Deliberation", "json"), function(file) {
     ensure_writable(file)
     writeLines(as.character(export_json(input$topic, rv$history, rv$kg, rv$analytics, rv$plan, rv$consensus)), file) })
-  output$dl_csv <- downloadHandler("deliberation.csv", function(file) {
+  output$dl_csv <- downloadHandler(function() out_filename("Deliberation", "csv"), function(file) {
     ensure_writable(file)
     write.csv(export_csv_history(rv$history), file, row.names = FALSE) })
 
@@ -1941,7 +1955,7 @@ server <- function(input, output, session) {
         coordinator = input$coordinator, include_plan_in_consensus = input$include_plan_in_consensus,
         include_moderator_in_transcript = input$include_moderator_in_transcript,
         narrative_type = input$narrative_type, narrative_type_custom = input$narrative_type_custom,
-        panel_design = input$panel_design
+        panel_design = input$panel_design, debate_title = input$debate_title
       )
     )
     save_session(state, name)
@@ -2004,6 +2018,7 @@ server <- function(input, output, session) {
     if (!is.null(cf$narrative_type))        updateSelectInput(session, "narrative_type", selected = cf$narrative_type)
     if (!is.null(cf$narrative_type_custom)) updateTextAreaInput(session, "narrative_type_custom", value = cf$narrative_type_custom)
     if (!is.null(cf$panel_design))          updateRadioButtons(session, "panel_design", selected = cf$panel_design)
+    if (!is.null(cf$debate_title))          updateTextInput(session, "debate_title", value = cf$debate_title)
     if (!is.null(cf$active_dimensions)) updateCheckboxGroupInput(session, "active_dimensions", selected = cf$active_dimensions)
     for (id in names(cf$models %||% list())) {
       v <- cf$models[[id]]
