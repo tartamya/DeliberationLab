@@ -1698,10 +1698,13 @@ server <- function(input, output, session) {
     if (nzchar(c0)) paste0("Debate coordinator: ", c0) else NULL
   }
   # Debate title sanitized for the filesystem ("" when blank/unusable).
+  # Truncated so a paragraph-length title cannot push paths past Windows'
+  # 260-character limit when combined with the sessions/Downloads directory.
   clean_title <- function() {
     t <- trimws(input$debate_title %||% "")
     t <- gsub("[^A-Za-z0-9_-]+", "_", t)
-    gsub("^_+|_+$", "", gsub("_+", "_", t))
+    t <- gsub("^_+|_+$", "", gsub("_+", "_", t))
+    substr(t, 1, 60)
   }
   # Uniform output filenames: <prefix>_<debate title>_<date-time>.<ext>.
   # A blank title drops that segment.
@@ -1945,9 +1948,22 @@ server <- function(input, output, session) {
   # Shared save routine (used by the Settings button and the Debate Setup copy).
   do_save_session <- function(name) {
     # Blank name -> the default scheme <debate title>_<date-time>, so one click
-    # saves under a meaningful, non-colliding name.
+    # saves under a meaningful name. Overwrite semantics: an EXPLICIT name may
+    # overwrite (that is how a loaded session is updated -- selecting a row
+    # copies its name into this field), but a DEFAULTED name never does -- two
+    # quick saves in the same minute get a numbered suffix instead of the
+    # second silently clobbering the first.
     name <- trimws(name %||% "")
-    if (!nzchar(name)) name <- session_default_name()
+    if (!nzchar(name)) {
+      name <- session_default_name()
+      taken <- function(n) file.exists(file.path(sessions_dir(),
+                                                 paste0(gsub("[^A-Za-z0-9_-]", "_", n), ".rds")))
+      if (taken(name)) {
+        i <- 2L
+        while (taken(paste0(name, "_", i))) i <- i + 1L
+        name <- paste0(name, "_", i)
+      }
+    }
     # Capture per-provider model overrides (may be NULL if Debate Setup unseen).
     models <- setNames(lapply(provider_ids(cfg), function(id) input[[paste0("model_", id)]]),
                        provider_ids(cfg))
