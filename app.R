@@ -225,18 +225,21 @@ ui <- page_navbar(
                         placeholder = paste("Paste the full case, background, constraints, data...",
                                             "The Planner and every agent see this as context.",
                                             "(Longer text = more tokens per turn.)")),
-          selectInput("narrative_type", "Narrative / myth type (optional)",
-                      choices = c("None" = "",
-                                  setNames(cfg_names(CONFIG$narrative_types), cfg_names(CONFIG$narrative_types)),
-                                  "Custom..." = "__custom__")),
-          conditionalPanel("input.narrative_type == '__custom__'",
-            textAreaInput("narrative_type_custom", "Describe the narrative/myth type to engineer", rows = 3,
-                          placeholder = paste("e.g. A lullaby-cycle that encodes water discipline",
-                                              "for children of a drought region..."))),
-          helpText("When set, every agent (and the Planner) receives this as the NARRATIVE TARGET. ",
-                   "Pair it with the 'Narrative Forge' debate mode (the 8-stage myth-engineering loop: ",
-                   "problem → moral frames → candidate myths → critique → revision → human testing → ",
-                   "cultural mutation → further revision) and the Narrative roles from the participant library."),
+          conditionalPanel("input.mode == 'Narrative Forge'",
+            selectInput("narrative_type", "Narrative / myth type (optional)",
+                        choices = c("None" = "",
+                                    setNames(cfg_names(CONFIG$narrative_types), cfg_names(CONFIG$narrative_types)),
+                                    "Custom..." = "__custom__")),
+            conditionalPanel("input.narrative_type == '__custom__'",
+              textAreaInput("narrative_type_custom", "Describe the narrative/myth type to engineer", rows = 3,
+                            placeholder = paste("e.g. A lullaby-cycle that encodes water discipline",
+                                                "for children of a drought region..."))),
+            helpText("Every agent (and the Planner) receives this as the NARRATIVE TARGET for the ",
+                     "8-stage myth-engineering loop. Seat the Narrative roles from the participant library.")),
+          conditionalPanel("input.mode != 'Narrative Forge'",
+            helpText(class = "text-muted",
+                     "To engineer narratives/myths: pick the 'Narrative Forge' debate mode on the ",
+                     "Debate Setup tab -- a narrative/myth type selector then appears here.")),
           tags$label(class = "control-label", "Apply critical rules"),
           checkboxInput("apply_rules_debate", "During deliberation (every agent turn)", value = TRUE),
           checkboxInput("apply_rules_consensus", "At consensus (final verdict)", value = TRUE),
@@ -650,7 +653,11 @@ server <- function(input, output, session) {
 
   # The selected narrative/myth type as a prompt line, or NULL when unset.
   # Preset -> its configured fragment; Custom -> the user's own description.
+  # Gated on the Narrative Forge mode to match the control's visibility: the
+  # selector only shows in that mode, and a value chosen there must not keep
+  # injecting a NARRATIVE TARGET into other modes from its hidden state.
   narrative_fragment <- function() {
+    if (!identical(input$mode, "Narrative Forge")) return(NULL)
     sel <- input$narrative_type %||% ""
     if (!nzchar(sel)) return(NULL)
     if (identical(sel, "__custom__")) {
