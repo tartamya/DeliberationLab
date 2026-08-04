@@ -40,6 +40,21 @@
       "name": "Fable",
       "description": "Non-human actors; a pointed, memorable lesson.",
       "prompt_fragment": "Engineer a FABLE: non-human actors -- animals, objects, forces -- enact a pointed lesson in a brief, memorable arc. The displacement into non-human characters should let the audience see their own behaviour without feeling accused."
+    },
+    {
+      "name": "Zen koan",
+      "description": "A brief paradoxical exchange that defeats analysis and provokes insight.",
+      "prompt_fragment": "Engineer a ZEN KOAN: a brief, concrete exchange or question about the matter at hand that cannot be resolved by discursive reasoning -- the impasse itself is the teaching. No explanation, no stated moral, no resolution; end on the turning point. A koan that can be answered analytically has failed."
+    },
+    {
+      "name": "Haiku",
+      "description": "A cycle of short image-poems; one concrete moment each, meaning by juxtaposition.",
+      "prompt_fragment": "Engineer a HAIKU CYCLE: a small sequence of three-line poems, each capturing ONE concrete sensory moment that embodies the matter at hand -- an image from nature or daily life, a seasonal anchor, and a cut (juxtaposition) that lets meaning arise unstated. No abstraction, no commentary, no moralizing; if a line explains, replace it with an image."
+    },
+    {
+      "name": "Taoist style",
+      "description": "A parable in the manner of Zhuangzi/Laozi: reversal, wu wei, the useful uselessness.",
+      "prompt_fragment": "Engineer a TAOIST-STYLE PARABLE in the manner of Zhuangzi or the Laozi: a short story or saying built on reversal -- the soft outlasting the hard, the useless tree left standing, the sage who leads by yielding (wu wei). Hold the paradox gently rather than resolving it, favour water, valley and uncarved-wood imagery over argument, and state no doctrine: the reader should arrive at the point the text never announces."
     }
   ]
 }
