@@ -1504,7 +1504,7 @@ server <- function(input, output, session) {
           }
           rv$kg <- kg_add_round(rv$kg, mod$data$nodes %||% list(), mod$data$edges %||% list(), r)
           rv$history[[length(rv$history)]]$moderator <- mod$data
-          rv$analytics <- compute_analytics(rv$history, topic)
+          rv$analytics <- analytics_append(rv$analytics, rv$history, topic)
           progress$set(value = r, detail = paste("Round", r, "of", n_rounds))
           TRUE
         }, error = function(e) {

@@ -111,24 +111,44 @@ extract_confidence <- function(txt) {
   if (length(m) > 0) as.numeric(gsub("[^0-9]", "", m)) else NA_real_
 }
 
+# One turn's analytics row. Turn i's metrics depend only on turns 1..i, so a
+# row computed once never changes -- which is what makes incremental appending
+# (analytics_append) exact, not approximate.
+.analytics_row <- function(history, i, topic) {
+  h <- history[[i]]
+  prior_texts <- lapply(history[seq_len(i - 1)], function(x) x$text)
+  prev_text <- if (i > 1) history[[i - 1]]$text else NULL
+  data.frame(round = h$round, agent = h$agent, words = compute_word_count(h$text),
+             novelty = compute_novelty(h$text, prior_texts),
+             agreement = compute_agreement(h$text, prev_text),
+             topic_drift = compute_topic_drift(h$text, topic),
+             confidence = h$confidence %||% extract_confidence(h$text),
+             stringsAsFactors = FALSE)
+}
+
 compute_analytics <- function(history, topic) {
   if (length(history) == 0) {
     return(data.frame(round = integer(), agent = character(), words = integer(),
                       novelty = numeric(), agreement = numeric(), topic_drift = numeric(),
                       confidence = numeric()))
   }
-  rows <- lapply(seq_along(history), function(i) {
-    h <- history[[i]]
-    prior_texts <- lapply(history[seq_len(i - 1)], function(x) x$text)
-    prev_text <- if (i > 1) history[[i - 1]]$text else NULL
-    data.frame(round = h$round, agent = h$agent, words = compute_word_count(h$text),
-               novelty = compute_novelty(h$text, prior_texts),
-               agreement = compute_agreement(h$text, prev_text),
-               topic_drift = compute_topic_drift(h$text, topic),
-               confidence = h$confidence %||% extract_confidence(h$text),
-               stringsAsFactors = FALSE)
-  })
-  do.call(rbind, rows)
+  out <- do.call(rbind, lapply(seq_along(history), function(i) .analytics_row(history, i, topic)))
+  rownames(out) <- NULL
+  out
+}
+
+# Incremental analytics: append the LAST turn's row to an existing table.
+# Rebuilding the whole table each turn is quadratic per call (novelty compares
+# against all prior turns) and was measured at ~18s/call by turn 320; the
+# append computes one row. Falls back to a full recompute whenever the table
+# doesn't line up with the history (fresh run, loaded session, cleared state),
+# so it can never drift from what compute_analytics would produce.
+analytics_append <- function(analytics, history, topic) {
+  n <- length(history)
+  if (is.null(analytics) || nrow(analytics) != n - 1) return(compute_analytics(history, topic))
+  out <- rbind(analytics, .analytics_row(history, n, topic))
+  rownames(out) <- NULL
+  out
 }
 
 # Novelty-plateau auto-stop: mean per-turn novelty over the last 3 rounds

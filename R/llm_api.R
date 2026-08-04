@@ -80,12 +80,31 @@ safe_api_post <- function(url, headers, body, timeout_sec = 90, max_retries = 3)
 # the same prompt is issued twice (e.g. re-running a planner on the same
 # topic, or the Prompt Preview tab). Cleared when the R session ends.
 .LLM_CACHE <- new.env(parent = emptyenv())
+# Insertion order for eviction, kept in a mutable side-env (envs pass by
+# reference, so helpers can update it). Capped so a long-lived app session
+# can't grow the cache without bound; oldest entries are evicted first.
+.LLM_CACHE_META <- new.env(parent = emptyenv())
+.LLM_CACHE_META$keys <- character(0)
+.LLM_CACHE_MAX <- 400L
 
 .cache_key <- function(provider_id, model, messages, max_tokens, temperature, reasoning_effort) {
   digest::digest(list(provider_id, model, messages, max_tokens, temperature, reasoning_effort),
                  algo = "sha1")
 }
-llm_cache_clear <- function() rm(list = ls(.LLM_CACHE), envir = .LLM_CACHE)
+.cache_put <- function(key, value) {
+  if (!exists(key, envir = .LLM_CACHE, inherits = FALSE))
+    .LLM_CACHE_META$keys <- c(.LLM_CACHE_META$keys, key)
+  assign(key, value, envir = .LLM_CACHE)
+  while (length(.LLM_CACHE_META$keys) > .LLM_CACHE_MAX) {
+    oldest <- .LLM_CACHE_META$keys[1]
+    .LLM_CACHE_META$keys <- .LLM_CACHE_META$keys[-1]
+    if (exists(oldest, envir = .LLM_CACHE, inherits = FALSE)) rm(list = oldest, envir = .LLM_CACHE)
+  }
+}
+llm_cache_clear <- function() {
+  rm(list = ls(.LLM_CACHE), envir = .LLM_CACHE)
+  .LLM_CACHE_META$keys <- character(0)
+}
 llm_cache_size  <- function() length(ls(.LLM_CACHE))
 
 # ---- Free local (Ollama) RAM ------------------------------------------------
@@ -373,7 +392,7 @@ llm_chat <- function(cfg, provider_id, messages, api_key,
   # cost without having to re-derive which model actually ran.
   res$provider <- provider_id
   res$model <- model
-  if (use_cache && isTRUE(res$ok)) assign(key, res, envir = .LLM_CACHE)
+  if (use_cache && isTRUE(res$ok)) .cache_put(key, res)
   res
 }
 

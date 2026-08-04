@@ -503,8 +503,14 @@ html_to_pdf <- function(html, file) {
   writeLines(enc2utf8(html), tmp, useBytes = TRUE)
   on.exit(unlink(tmp), add = TRUE)
   url <- paste0("file:///", gsub("\\\\", "/", normalizePath(tmp)))
-  b <- chromote::ChromoteSession$new()
-  on.exit(try(b$close(), silent = TRUE), add = TRUE)
+  # A dedicated Chrome process per export, closed when done. The default
+  # chromote process would otherwise stay resident (~250 MB) for the entire app
+  # session after the first export -- meaningful on a machine sharing RAM with
+  # local models. Costs ~2s of Chrome startup per export, which exports can afford.
+  chrome <- chromote::Chromote$new()
+  on.exit(try(chrome$close(), silent = TRUE), add = TRUE)
+  b <- chromote::ChromoteSession$new(parent = chrome)
+  on.exit(try(b$close(), silent = TRUE), add = TRUE, after = FALSE)
   # Register the load listener BEFORE navigating (a fast file:// can otherwise
   # fire the load event before we start waiting -> timeout).
   p <- b$Page$loadEventFired(wait_ = FALSE)
