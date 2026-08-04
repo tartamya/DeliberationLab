@@ -389,7 +389,8 @@ ui <- page_navbar(
                      br(),
                      actionButton("run_discussion2", "Run Deliberation", class = "btn-primary"),
                      hr(),
-                     textInput("session_name2", "Save as", value = "session1"),
+                     textInput("session_name2", "Save as", value = "",
+                               placeholder = "blank = <debate title>_<date-time>"),
                      actionButton("btn_save_session2", "Save current debate", class = "btn-sm"),
                      helpText("Saves the full configuration + results (same as Settings → Saved debates).")))
     ),
@@ -525,7 +526,8 @@ ui <- page_navbar(
         p(class = "text-muted", "Saves the full configuration (providers, mode, moderator, ",
           "objective, rounds, tokens, dimensions, models) AND all results (agents, plan, ",
           "transcript, knowledge graph, analytics, consensus, cost)."),
-        textInput("session_name", "Name", value = "session1"),
+        textInput("session_name", "Name", value = "",
+                  placeholder = "blank = <debate title>_<date-time>"),
         actionButton("btn_save_session", "Save current debate", class = "btn-sm btn-primary"),
         hr(),
         helpText("Select a saved debate, then Load or Delete."),
@@ -1695,14 +1697,24 @@ server <- function(input, output, session) {
     c0 <- trimws(input$coordinator %||% "")
     if (nzchar(c0)) paste0("Debate coordinator: ", c0) else NULL
   }
-  # Uniform output filenames: <prefix>_<debate title>_<date-time>.<ext>.
-  # The title is sanitized for the filesystem; blank title drops that segment.
-  out_filename <- function(prefix, ext) {
+  # Debate title sanitized for the filesystem ("" when blank/unusable).
+  clean_title <- function() {
     t <- trimws(input$debate_title %||% "")
     t <- gsub("[^A-Za-z0-9_-]+", "_", t)
-    t <- gsub("^_+|_+$", "", gsub("_+", "_", t))
+    gsub("^_+|_+$", "", gsub("_+", "_", t))
+  }
+  # Uniform output filenames: <prefix>_<debate title>_<date-time>.<ext>.
+  # A blank title drops that segment.
+  out_filename <- function(prefix, ext) {
+    t <- clean_title()
     paste0(prefix, if (nzchar(t)) paste0("_", t) else "", "_",
            format(Sys.time(), "%Y-%m-%d_%H-%M"), ".", ext)
+  }
+  # Default saved-session name: <debate title>_<date-time> (Session_... when
+  # no title is set), matching the download-filename scheme.
+  session_default_name <- function() {
+    t <- clean_title()
+    paste0(if (nzchar(t)) t else "Session", "_", format(Sys.time(), "%Y-%m-%d_%H-%M"))
   }
   # Plan to fold into the consensus report, when the checkbox is ticked.
   consensus_plan <- function() if (isTRUE(input$include_plan_in_consensus)) rv$plan else NULL
@@ -1932,7 +1944,10 @@ server <- function(input, output, session) {
 
   # Shared save routine (used by the Settings button and the Debate Setup copy).
   do_save_session <- function(name) {
-    if (!nzchar(name %||% "")) { showNotification("Enter a name to save under.", type = "warning"); return() }
+    # Blank name -> the default scheme <debate title>_<date-time>, so one click
+    # saves under a meaningful, non-colliding name.
+    name <- trimws(name %||% "")
+    if (!nzchar(name)) name <- session_default_name()
     # Capture per-provider model overrides (may be NULL if Debate Setup unseen).
     models <- setNames(lapply(provider_ids(cfg), function(id) input[[paste0("model_", id)]]),
                        provider_ids(cfg))
