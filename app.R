@@ -208,6 +208,27 @@ ui <- page_navbar(
         card_header("Status"),
         card_body(uiOutput("home_status"))
       )
+    ),
+    # Saved debates lives here rather than in Settings: loading a past debate is
+    # a starting action, not a configuration one. fillable=FALSE so a long
+    # sessions table pushes the buttons down instead of flexing over them.
+    card(
+      card_header("Saved debates"),
+      card_body(
+        fillable = FALSE,
+        p(class = "text-muted", "Saves the full configuration (providers, mode, moderator, ",
+          "objective, rounds, tokens, dimensions, models) AND all results (agents, plan, ",
+          "transcript, knowledge graph, analytics, consensus, cost)."),
+        textInput("session_name", "Name", value = "",
+                  placeholder = "blank = <debate title>_<date-time>"),
+        actionButton("btn_save_session", "Save current debate", class = "btn-sm btn-primary"),
+        hr(),
+        helpText("Select a saved debate, then Load or Delete."),
+        DTOutput("sessions_table"),
+        br(),
+        actionButton("btn_load_session", "Load selected", class = "btn-sm"),
+        actionButton("btn_delete_session", "Delete selected", class = "btn-sm btn-danger")
+      )
     )
   ),
 
@@ -392,7 +413,7 @@ ui <- page_navbar(
                      textInput("session_name2", "Save as", value = "",
                                placeholder = "blank = <debate title>_<date-time>"),
                      actionButton("btn_save_session2", "Save current debate", class = "btn-sm"),
-                     helpText("Saves the full configuration + results (same as Settings → Saved debates).")))
+                     helpText("Saves the full configuration + results (same as Home → Saved debates).")))
     ),
     card(
       card_header(
@@ -512,7 +533,7 @@ ui <- page_navbar(
   nav_panel(
     "Settings", icon = icon("gear"),
     layout_columns(
-      col_widths = c(6, 6),
+      col_widths = c(6),
       card(card_header("API keys (session only)"), card_body(
         p(class = "text-muted", "Env vars and config/secrets.R are used first; keys typed here override for this session only and are never saved."),
         uiOutput("key_inputs"),
@@ -521,20 +542,7 @@ ui <- page_navbar(
         uiOutput("key_test_result"),
         hr(),
         actionButton("clear_cache", "Clear response cache", class = "btn-sm"),
-        textOutput("cache_status"))),
-      card(card_header("Saved debates"), card_body(
-        p(class = "text-muted", "Saves the full configuration (providers, mode, moderator, ",
-          "objective, rounds, tokens, dimensions, models) AND all results (agents, plan, ",
-          "transcript, knowledge graph, analytics, consensus, cost)."),
-        textInput("session_name", "Name", value = "",
-                  placeholder = "blank = <debate title>_<date-time>"),
-        actionButton("btn_save_session", "Save current debate", class = "btn-sm btn-primary"),
-        hr(),
-        helpText("Select a saved debate, then Load or Delete."),
-        DTOutput("sessions_table"),
-        br(),
-        actionButton("btn_load_session", "Load selected", class = "btn-sm"),
-        actionButton("btn_delete_session", "Delete selected", class = "btn-sm btn-danger")))
+        textOutput("cache_status")))
     )
   )
 )
