@@ -1719,6 +1719,26 @@ server <- function(input, output, session) {
     t <- clean_title()
     paste0(if (nzchar(t)) t else "Session", "_", format(Sys.time(), "%Y-%m-%d_%H-%M"))
   }
+  # The value last auto-filled into the save-name boxes. Tracked so we can
+  # (a) refresh them when the debate title changes WITHOUT clobbering a name the
+  # user typed, and (b) still treat an auto-filled name as "defaulted" at save
+  # time, so it keeps the never-overwrite protection a blank field would get.
+  session_name_auto <- reactiveVal("")
+
+  # Debate title (Planner tab) -> the "Save as" boxes, so the name you will save
+  # under is visible up front instead of hiding behind a placeholder. Clearing
+  # the title clears the boxes again (restoring the placeholder hint).
+  observeEvent(input$debate_title, {
+    nm <- if (nzchar(clean_title())) session_default_name() else ""
+    prev <- session_name_auto()
+    for (id in c("session_name", "session_name2")) {
+      cur <- trimws(input[[id]] %||% "")
+      # Only touch a field the user has not customized (blank, or still holding
+      # exactly what we put there last time).
+      if (!nzchar(cur) || identical(cur, prev)) updateTextInput(session, id, value = nm)
+    }
+    session_name_auto(nm)
+  }, ignoreInit = TRUE)
   # Plan to fold into the consensus report, when the checkbox is ticked.
   consensus_plan <- function() if (isTRUE(input$include_plan_in_consensus)) rv$plan else NULL
   # Debate-quality scorecard from the moderator/KG data (NULL until there's a run).
@@ -1954,8 +1974,12 @@ server <- function(input, output, session) {
     # quick saves in the same minute get a numbered suffix instead of the
     # second silently clobbering the first.
     name <- trimws(name %||% "")
-    if (!nzchar(name)) {
-      name <- session_default_name()
+    # "Defaulted" = blank, or still exactly the value we auto-filled from the
+    # debate title. Both get collision protection; only a name the user actually
+    # typed may overwrite an existing session.
+    defaulted <- !nzchar(name) || identical(name, trimws(session_name_auto()))
+    if (!nzchar(name)) name <- session_default_name()
+    if (defaulted) {
       taken <- function(n) file.exists(file.path(sessions_dir(),
                                                  paste0(gsub("[^A-Za-z0-9_-]", "_", n), ".rds")))
       if (taken(name)) {
