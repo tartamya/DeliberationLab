@@ -258,6 +258,50 @@ build_planner_messages <- function(topic, cfg, n_agents_hint = NULL, problem_det
   list(list(role = "system", content = sys), list(role = "user", content = user))
 }
 
+# ---- Role generation --------------------------------------------------------
+# Asks the meta provider for N new library roles, optionally scoped to a field.
+# The configured vocabulary is injected so generated roles use real, wired-up
+# reasoning/evidence values, and existing names are listed so the model does not
+# propose one that would be rejected as a duplicate on import.
+build_role_gen_messages <- function(cfg, field = "", n = 5, existing = character(0)) {
+  vocab <- function(items) paste(cfg_names(items), collapse = ", ")
+  field <- trimws(field %||% "")
+  scope <- if (nzchar(field))
+    paste0("All ", n, " roles must belong to the field: ", field,
+           ". Cover genuinely different sub-specialisms and viewpoints WITHIN that field ",
+           "-- not ", n, " variations of the same expert.")
+  else
+    paste0("Produce a broad mix of ", n, " roles across different domains and epistemic ",
+           "functions, chosen to be useful in a wide range of deliberations.")
+  sys <- paste0(
+    "You design expert ROLES for a multi-agent deliberation laboratory. A role is one ",
+    "participant's standing identity: what they know, how they reason, what evidence they ",
+    "trust, and -- critically -- what they must NOT do.\n\n",
+    scope, "\n\n",
+    "Use these EXACT values where the field applies (they are wired into the app):\n",
+    "- reasoning: ", vocab(cfg$reasoning_styles), "\n",
+    "- evidence: ", vocab(cfg$evidence_types), "\n\n",
+    "RULES:\n",
+    "1. Every role MUST have a non-empty `constraints`: a specific prohibition that keeps it ",
+    "in its lane (\"Do not X -- that is another participant's job\"). A role without a boundary ",
+    "collapses into generic analysis, which is the single most common failure of these panels.\n",
+    "2. Each role must cover a DIFFERENT way the group could be wrong. Two roles that would ",
+    "raise the same objection are one role.\n",
+    "3. `bias` names the leaning the role should acknowledge; `communication` is its tone.\n",
+    "4. Dials are 0-1 and should match the role (a contrarian is high skepticism).\n",
+    if (length(existing))
+      paste0("5. These names are ALREADY TAKEN -- do not reuse any of them:\n",
+             paste(existing, collapse = ", "), "\n") else "",
+    "\nRespond with ONLY a JSON array of exactly ", n, " objects (no prose, no fences):\n",
+    '[{"name": string, "category": string, "expertise": string, "reasoning": string, ',
+    '"evidence": string, "communication": string, "bias": string, "constraints": string, ',
+    '"creativity": number, "skepticism": number, "risk_tolerance": number}]')
+  user <- if (nzchar(field))
+    paste0("Design ", n, " roles for the field: ", field, ".")
+  else paste0("Design ", n, " generally useful roles.")
+  list(list(role = "system", content = sys), list(role = "user", content = user))
+}
+
 # Five-role variant (two-layer architecture): the four seated epistemic
 # functions are FIXED -- the planner's job is to assign each one a
 # topic-appropriate DOMAIN LENS (a Challenger challenging as a clinical

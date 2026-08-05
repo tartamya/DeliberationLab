@@ -378,6 +378,19 @@ ui <- page_navbar(
                "Rules ✓ = the role carries constraints (what it must not do).")
         ),
         hr(),
+        tags$h6("Generate roles"),
+        p(class = "text-muted",
+          "Have the Planner/Moderator provider design new library roles. Name a field to ",
+          "stay inside it, or leave it blank for a broad mix. Generated roles land in the ",
+          "same preview below -- nothing is written until you press Import."),
+        layout_columns(
+          col_widths = c(7, 2, 3),
+          textInput("gen_roles_field", NULL, value = "",
+                    placeholder = "Field, e.g. automotive engineering (blank = broad mix)"),
+          numericInput("gen_roles_n", NULL, value = 5, min = 1, max = 20),
+          actionButton("gen_roles", "Generate", class = "btn-sm btn-primary")
+        ),
+        hr(),
         tags$h6("Import roles"),
         p(class = "text-muted",
           "Paste a JSON array, a markdown table, or rows copied from a spreadsheet -- ",
@@ -1114,6 +1127,44 @@ server <- function(input, output, session) {
     }
     v <- validate_import(res$roles)
     import_staged(c(v, list(error = NULL)))
+  })
+
+  # Ask the meta provider to design new roles. The result goes through the same
+  # staging/preview/validate path as a paste, so generation is never a direct
+  # write -- the model proposes, the preview shows, the user commits.
+  observeEvent(input$gen_roles, {
+    n <- suppressWarnings(as.integer(input$gen_roles_n))
+    if (is.na(n) || n < 1) n <- 5
+    n <- min(n, 20L)
+    field <- trimws(input$gen_roles_field %||% "")
+    prov <- input$meta_provider
+    log_event("INFO", paste0("Generate roles clicked: n=", n,
+                             if (nzchar(field)) paste0(", field='", field, "'") else ", no field",
+                             ", provider=", prov, "."))
+    msgs <- build_role_gen_messages(cfg, field, n, existing = cfg_names(role_lib()))
+    r <- withProgress(message = "Designing roles...", value = 0.5, {
+      # Warmer than the other meta calls: role design wants variety, and the
+      # schema is simple enough that temperature does not threaten the JSON.
+      llm_json(cfg, prov, msgs, meta_key(), max_tokens = 3500, temperature = 0.7,
+               use_cache = FALSE, fallbacks = meta_fallbacks(prov))
+    })
+    log_usage("role generation", r$provider %||% prov, r$model, r$usage, r$cached)
+    if (!isTRUE(r$ok) || is.null(r$parsed)) {
+      msg <- r$error %||% "the model did not return usable JSON"
+      log_event("ERROR", paste("Role generation failed:", msg))
+      import_staged(list(error = paste("Role generation failed:", msg)))
+      return()
+    }
+    raw <- r$parsed
+    if (!is.null(raw$roles)) raw <- raw$roles      # tolerate a {"roles": [...]} wrapper
+    if (!is.null(raw$name)) raw <- list(raw)       # ...or a single object
+    v <- validate_import(lapply(raw, .normalize_imported_role))
+    if (length(v$ok) == 0 && length(v$rejected) == 0) {
+      import_staged(list(error = "The model returned no usable roles.")); return()
+    }
+    import_staged(c(v, list(error = NULL)))
+    showNotification(paste0("Designed ", length(v$ok), " role(s) -- review below, then Import."),
+                     type = "message")
   })
 
   output$lib_import_report <- renderUI({
