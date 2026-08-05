@@ -126,6 +126,21 @@ append_roles_to_library <- function(config_dir, roles) {
   invisible(path)
 }
 
+# Remove roles from the library by name. The library is hand-curated and this
+# cannot be undone from the UI, so roles.json is copied to a timestamped backup
+# beside it first. Returns list(removed = <n>, backup = <path or NULL>).
+delete_roles_from_library <- function(config_dir, names) {
+  path <- file.path(config_dir, "roles.json")
+  obj <- jsonlite::fromJSON(readLines(path, warn = FALSE, encoding = "UTF-8"), simplifyVector = FALSE)
+  before <- length(obj$roles)
+  if (before == 0 || length(names) == 0) return(list(removed = 0L, backup = NULL))
+  backup <- file.path(config_dir, paste0("roles.backup-", format(Sys.time(), "%Y%m%d-%H%M%S"), ".json"))
+  file.copy(path, backup, overwrite = TRUE)
+  obj$roles <- Filter(function(r) !((r$name %||% "") %in% names), obj$roles)
+  writeLines(jsonlite::toJSON(obj, auto_unbox = TRUE, pretty = TRUE), path, useBytes = TRUE)
+  list(removed = before - length(obj$roles), backup = backup)
+}
+
 # ---- Role import -------------------------------------------------------------
 # Header aliases -> canonical role field. Deliberately generous: roles are
 # usually drafted as a markdown table or a spreadsheet, where the columns get

@@ -374,9 +374,13 @@ ui <- page_navbar(
         div(
           actionButton("lib_add", "➕ Add selected to roster", class = "btn-success btn-sm"),
           actionButton("lib_load", "✎ Load into editor", class = "btn-sm btn-primary"),
+          actionButton("lib_delete_selected", "🗑 Delete selected", class = "btn-sm btn-danger"),
+          actionButton("lib_delete_all", "Delete all roles", class = "btn-sm btn-outline-danger"),
           span(class = "text-muted", style = "margin-left:8px;",
                "Rules ✓ = the role carries constraints (what it must not do).")
         ),
+        helpText("Deleting edits config/roles.json. A timestamped backup is written beside it ",
+                 "first, and agents already seated on the roster are not affected."),
         hr(),
         tags$h6("Generate roles"),
         p(class = "text-muted",
@@ -1093,6 +1097,73 @@ server <- function(input, output, session) {
     updateTextAreaInput(session, "ag_prompt", value = "")
     showNotification(paste0("Loaded '", nm, "' into the editor -- adjust it, then click Add Agent."),
                      type = "message")
+  })
+
+  # ---- Delete roles from the library ---------------------------------------
+  # Both paths stage the names, show what will go, and only write on confirm.
+  delete_pending <- reactiveVal(character(0))
+
+  # Roles the five-role panel seats by name -- deleting one silently degrades
+  # that panel to a generic agent, so it is called out before the write.
+  .panel_role_names <- function() vapply(.FIVE_ROLE_PANEL, function(x) x$lib, character(1))
+
+  confirm_delete_modal <- function(names, all = FALSE) {
+    needed <- intersect(names, .panel_role_names())
+    showModal(modalDialog(
+      title = if (all) "Delete every role?" else "Delete selected roles?",
+      if (all)
+        tags$p(tags$b(sprintf("This removes all %d roles from the library.", length(names))),
+               " The library will be empty until you import or generate new ones.")
+      else
+        tagList(tags$p(sprintf("Removing %d role%s:", length(names), if (length(names) == 1) "" else "s")),
+                tags$ul(lapply(names, tags$li))),
+      if (length(needed))
+        tags$p(class = "text-danger",
+               tags$b("Warning: "), "the five-role panel seats ",
+               paste(needed, collapse = ", "),
+               " by name. Deleting these leaves that panel building generic agents ",
+               "without their constraints.") else NULL,
+      tags$p(class = "text-muted",
+             "config/roles.json is backed up beside itself first. Seated agents are unaffected."),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("lib_delete_confirm", "Delete", class = "btn-danger")),
+      easyClose = TRUE))
+  }
+
+  observeEvent(input$lib_delete_selected, {
+    sel <- input$library_table_rows_selected
+    if (length(sel) == 0) {
+      showNotification("Tick the roles to delete in the library first.", type = "warning"); return()
+    }
+    nms <- vapply(role_lib()[sel], function(r) r$name %||% "", character(1))
+    delete_pending(nms)
+    confirm_delete_modal(nms, all = FALSE)
+  })
+
+  observeEvent(input$lib_delete_all, {
+    nms <- cfg_names(role_lib())
+    if (length(nms) == 0) { showNotification("The library is already empty.", type = "warning"); return() }
+    delete_pending(nms)
+    confirm_delete_modal(nms, all = TRUE)
+  })
+
+  observeEvent(input$lib_delete_confirm, {
+    nms <- delete_pending()
+    removeModal()
+    if (length(nms) == 0) return()
+    res <- tryCatch(delete_roles_from_library(CONFIG_DIR, nms),
+                    error = function(e) { showNotification(paste("Delete failed:", conditionMessage(e)),
+                                                           type = "error"); NULL })
+    if (is.null(res)) return()
+    role_lib(Filter(function(r) !((r$name %||% "") %in% nms), role_lib()))
+    updateSelectInput(session, "ag_role", choices = c("Custom", cfg_names(role_lib())))
+    selectRows(library_proxy, NULL)
+    delete_pending(character(0))
+    log_event("WARN", paste0("Deleted ", res$removed, " role(s) from the library: ",
+                             paste(nms, collapse = ", "), ". Backup: ", basename(res$backup %||% "none"), "."))
+    showNotification(paste0("Deleted ", res$removed, " role(s). Backup saved as ",
+                            basename(res$backup %||% "none"), "."), type = "message", duration = 8)
   })
 
   # ---- Import roles (paste JSON / markdown table / spreadsheet rows) --------

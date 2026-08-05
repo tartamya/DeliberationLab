@@ -19,6 +19,9 @@ Rplots.pdf
 # Windows shortcuts (machine-specific)
 *.lnk
 
+# Automatic backups written before a destructive role-library edit
+config/roles.backup-*.json
+
 # Working drafts and exported images in the project root -- local scratch, not
 # source. Deliberation_Lab_Framework.docx is tracked deliberately (see below).
 /AI_Debate_*.docx
