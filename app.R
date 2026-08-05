@@ -731,7 +731,9 @@ server <- function(input, output, session) {
       pd <- input$problem_details
       nf <- narrative_fragment()
       if (!is.null(nf)) pd <- trimws(paste(pd %||% "", nf, sep = "\n\n"))
-      out <- run_planner(input$topic, cfg, input$meta_provider, key,
+      # cfg_live(): the planner's role vocabulary must reflect roles imported
+      # or deleted this session, not the snapshot taken at app start.
+      out <- run_planner(input$topic, cfg_live(), input$meta_provider, key,
                          n_agents_hint = n_hint, use_cache = input$use_cache,
                          problem_details = pd,
                          fallbacks = meta_fallbacks(input$meta_provider),
@@ -807,7 +809,10 @@ server <- function(input, output, session) {
   observeEvent(input$apply_plan_agents, {
     req(rv$plan)
     provs <- input$active_providers
-    rv$agents <- agents_from_plan(cfg, rv$plan, provs)
+    # cfg_live(): seat from the live library so a role imported this session
+    # arrives with its expertise, constraints and dials rather than as a bare
+    # fallback agent.
+    rv$agents <- agents_from_plan(cfg_live(), rv$plan, provs)
     showNotification(paste("Built", length(rv$agents), "participants from the plan."), type = "message")
     nav_select("navbar", "Participants")
   })
@@ -847,6 +852,12 @@ server <- function(input, output, session) {
   # customized expertise and dials with the role's defaults. The row observer
   # parks the role name here; the prefill skips that one firing.
   skip_role_prefill <- reactiveVal(NULL)
+
+  # The startup config with its role list swapped for the LIVE library. Anything
+  # that reads roles at runtime must use this: `cfg` is a snapshot from app
+  # start, so a role imported/generated this session would be invisible to it
+  # and a role deleted this session would still be found by it.
+  cfg_live <- function() { c2 <- cfg; c2$roles <- role_lib(); c2 }
 
   # The live participant library. Starts as the roles loaded from roles.json and
   # grows when "Save to library" appends one, so a role saved this session is
@@ -996,9 +1007,8 @@ server <- function(input, output, session) {
     if (isTRUE(rv$running)) {
       showNotification("Stop the running deliberation before shuffling the roster.", type = "warning"); return()
     }
-    # Shuffle draws from the live library, so roles saved this session count.
-    cfg_live <- cfg; cfg_live$roles <- role_lib()
-    roster <- random_roster(cfg_live, input$active_providers)
+    # Shuffle draws from the live library, so roles added this session count.
+    roster <- random_roster(cfg_live(), input$active_providers)
     if (length(roster) == 0) { showNotification("Could not build a roster.", type = "error"); return() }
     rv$agents <- roster
     rv$loaded_providers <- NULL   # a fresh random roster, not a loaded debate's
