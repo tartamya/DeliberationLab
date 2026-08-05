@@ -1493,8 +1493,14 @@ server <- function(input, output, session) {
               newk <- slot_key(a$provider, a$model)
               log_event("WARN", paste0("Round ", r, " ", a$name, ": '", old, "' failed (",
                                        turn$error %||% "error", ") -- reallocating to '", newk, "'."))
-              showNotification(paste0(a$name, ": ", old, " failed -- switched to ", newk),
-                               type = "warning", duration = 5)
+              # Carry a short reason in the toast too: the full error goes to the
+              # Run log, but the toast is what the user actually sees, and
+              # "X failed" without a cause sends them hunting for it later.
+              why <- gsub("[[:space:]]+", " ", trimws(turn$error %||% ""))
+              if (nchar(why) > 90) why <- paste0(substr(why, 1, 90), "...")
+              showNotification(paste0(a$name, ": ", old, " failed -- switched to ", newk,
+                                      if (nzchar(why)) paste0("\n", why) else ""),
+                               type = "warning", duration = 8)
             }
             # Keep the reassignment for the rest of THIS run (so a reallocated
             # agent stays on its working provider next round instead of reverting
