@@ -142,6 +142,53 @@ idea_evolution_table <- function(kg, current_round, stale_after = 4) {
   }))
 }
 
+# The graph as a claim ledger, for the Synthesiser. The consensus call only
+# ever received the raw transcript, so the verdict had to re-derive from prose
+# the argument structure the moderator had already extracted. This renders each
+# claim with what supported, contradicted or refined it -- and, most usefully,
+# marks the claims nothing ever linked to, which reads as "never challenged".
+kg_structure_text <- function(kg, max_claims = 40) {
+  if (is.null(kg) || !is.data.frame(kg$nodes) || nrow(kg$nodes) == 0) return("")
+  nodes <- kg$nodes
+  edges <- if (is.data.frame(kg$edges) && nrow(kg$edges) > 0) kg$edges else
+    data.frame(from = character(), to = character(), relation = character(), stringsAsFactors = FALSE)
+  lbl <- stats::setNames(as.character(nodes$label), as.character(nodes$id))
+  look <- function(ids) { v <- unname(lbl[ids]); v[!is.na(v) & nzchar(v)] }
+
+  tally <- table(nodes$type)
+  header <- paste0("Nodes: ", paste(sprintf("%d %s", as.integer(tally), names(tally)), collapse = ", "),
+                   " | Edges: ", nrow(edges))
+
+  claim_ids <- as.character(nodes$id[nodes$type %in% c("Claim", "Idea")])
+  if (length(claim_ids) == 0) return(paste0("KNOWLEDGE GRAPH\n", header))
+  truncated <- length(claim_ids) > max_claims
+  claim_ids <- utils::head(claim_ids, max_claims)
+
+  lines <- vapply(claim_ids, function(id) {
+    inc <- edges[as.character(edges$to) == id, , drop = FALSE]
+    sup <- look(inc$from[inc$relation %in% c("Supports")])
+    con <- look(inc$from[inc$relation %in% c("Contradicts", "Rejects")])
+    dev <- look(inc$from[inc$relation %in% c("Extends", "Refines")])
+    paste(c(
+      paste0("- ", lbl[[id]]),
+      if (length(sup)) paste0("    supported by: ", paste(sup, collapse = "; ")) else NULL,
+      if (length(con)) paste0("    CONTRADICTED by: ", paste(con, collapse = "; ")) else NULL,
+      if (length(dev)) paste0("    refined/extended by: ", paste(dev, collapse = "; ")) else NULL,
+      if (!length(sup) && !length(con) && !length(dev))
+        "    (nothing linked to this claim -- it was neither supported nor challenged)" else NULL
+    ), collapse = "\n")
+  }, character(1))
+
+  paste0(
+    "KNOWLEDGE GRAPH extracted by the moderator during the debate. Use it to say precisely ",
+    "which claims survived scrutiny, which were contradicted and never defended, and which ",
+    "were never engaged with at all -- do not rely on the transcript alone for that.\n",
+    header, "\n\nClaims, and what the debate did to each:\n",
+    paste(lines, collapse = "\n"),
+    if (truncated) paste0("\n(... ", length(as.character(nodes$id[nodes$type %in% c("Claim","Idea")])) - max_claims,
+                          " further claims omitted)") else "")
+}
+
 # Compact one-line KG summary for injection into agent prompts.
 kg_summary_text <- function(kg, n = 8) {
   if (nrow(kg$nodes) == 0) return("(empty)")

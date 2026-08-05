@@ -1945,7 +1945,12 @@ server <- function(input, output, session) {
                               fallbacks = meta_fallbacks(input$meta_provider),
                               critical_rules = if (!identical(input$apply_rules_consensus, FALSE)) input$critical_rules else NULL,
                               synthesiser = identical(rv$plan$panel %||% "", "five_role"),
-                              extra_context = narrative_fragment())
+                              # The transcript alone hides the argument structure the
+                              # moderator already extracted; hand the graph over as a
+                              # claim ledger so the verdict can cite what survived.
+                              extra_context = paste(Filter(nzchar, c(
+                                narrative_fragment() %||% "",
+                                kg_structure_text(rv$kg))), collapse = "\n\n"))
     })
     if (!isTRUE(res$ok)) {
       log_event("ERROR", paste("Consensus failed:", res$error))

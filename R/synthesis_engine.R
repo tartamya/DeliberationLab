@@ -33,11 +33,14 @@ consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key,
   # right KIND of final candidate.
   context_block <- if (!is.null(extra_context) && nzchar(trimws(extra_context)))
     paste0(trimws(extra_context), "\n\n") else ""
+  # Instructions first, then the material. context_block can be sizeable (the
+  # knowledge-graph ledger), and putting data between the opening line and the
+  # role/rules framing buries the instructions the model most needs to follow.
   prompt <- paste0(
     "You are synthesizing the FINAL outcome of a multi-agent deliberation on: \"", topic, "\".\n",
-    context_block,
     synth_block,
     rules_block,
+    context_block,
     "Full transcript follows:\n\n", full_history_txt, "\n\n",
     "Respond with ONLY a JSON object (no prose, no fences):\n",
     '{"consensus": string, "minority_report": string, "open_questions": [string], ',
