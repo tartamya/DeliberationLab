@@ -31,11 +31,11 @@ pre.preview-box {
 
 /* Run log (Debate Setup tab) -- scrollable diagnostics box */
 .run-log {
-  max-height: 320px; overflow-y: auto; border: 1px solid #DFE1E6; border-radius: 6px;
+  max-height: 380px; overflow-y: auto; border: 1px solid #DFE1E6; border-radius: 6px;
   background: #FBFCFD; padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 85%; line-height: 1.5;
+  font-size: 100%; line-height: 1.55;
 }
-.run-log-line { white-space: pre-wrap; word-break: break-word; padding: 1px 0; border-bottom: 1px solid #F0F2F4; }
+.run-log-line { white-space: pre-wrap; word-break: break-word; padding: 2px 0; border-bottom: 1px solid #F0F2F4; }
 .run-log-time { color: #98A2B3; }
 
 /* Bold labels -- FIELD/input labels (the group label, not individual checkbox/
