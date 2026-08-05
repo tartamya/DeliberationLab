@@ -376,7 +376,24 @@ ui <- page_navbar(
           actionButton("lib_load", "✎ Load into editor", class = "btn-sm btn-primary"),
           span(class = "text-muted", style = "margin-left:8px;",
                "Rules ✓ = the role carries constraints (what it must not do).")
-        )
+        ),
+        hr(),
+        tags$h6("Import roles"),
+        p(class = "text-muted",
+          "Paste a JSON array, a markdown table, or rows copied from a spreadsheet -- ",
+          "with a header naming the columns (Name / Category / Expertise / Reasoning / ",
+          "Evidence / Communication / Bias / Constraints, plus optional Creativity, ",
+          "Skepticism, Risk tolerance). Preview first; importing appends to ",
+          "config/roles.json and the roles are usable immediately."),
+        textAreaInput("lib_import_text", NULL, rows = 5, width = "100%",
+                      placeholder = paste0(
+                        "| Name | Category | Expertise | Constraints |\n",
+                        "| Ethicist | Custom | applied ethics | Do not adjudicate empirical claims. |")),
+        div(
+          actionButton("lib_import_preview", "Preview", class = "btn-sm"),
+          actionButton("lib_import_do", "Import", class = "btn-sm btn-success")
+        ),
+        uiOutput("lib_import_report")
       )
     )
   ),
@@ -1060,6 +1077,84 @@ server <- function(input, output, session) {
     updateTextAreaInput(session, "ag_prompt", value = "")
     showNotification(paste0("Loaded '", nm, "' into the editor -- adjust it, then click Add Agent."),
                      type = "message")
+  })
+
+  # ---- Import roles (paste JSON / markdown table / spreadsheet rows) --------
+  # Validated on Preview and held here, so Import can only ever write exactly
+  # what was shown -- a bad paste cannot silently corrupt the library.
+  import_staged <- reactiveVal(NULL)
+
+  # Check a parsed batch against the live library and the config vocabularies.
+  # Returns the roles that may be imported, plus per-role notes.
+  validate_import <- function(roles) {
+    existing <- cfg_names(role_lib())
+    rs <- cfg_names(cfg$reasoning_styles); ev <- cfg_names(cfg$evidence_types)
+    seen <- character(0); ok <- list(); rejected <- list(); notes <- list()
+    for (r in roles) {
+      why <- character(0)
+      if (r$name %in% existing) why <- c(why, "a role with this name already exists")
+      if (r$name %in% seen)     why <- c(why, "duplicated within this paste")
+      if (length(why) > 0) { rejected[[length(rejected) + 1]] <- list(role = r, why = why); next }
+      n <- character(0)
+      # Unknown vocabulary is allowed (custom roles already do it) but the
+      # persona then carries the raw text with no configured style fragment.
+      if (!(r$reasoning %in% rs)) n <- c(n, paste0("reasoning '", r$reasoning, "' is not a configured style"))
+      if (!(r$evidence %in% ev))  n <- c(n, paste0("evidence '", r$evidence, "' is not a configured type"))
+      if (!nzchar(r$constraints)) n <- c(n, "no constraints -- the role has no enforced boundary")
+      seen <- c(seen, r$name); ok[[length(ok) + 1]] <- r
+      notes[[length(notes) + 1]] <- n
+    }
+    list(ok = ok, notes = notes, rejected = rejected)
+  }
+
+  observeEvent(input$lib_import_preview, {
+    res <- parse_roles_text(input$lib_import_text)
+    if (!is.null(res$error)) {
+      import_staged(list(error = res$error)); return()
+    }
+    v <- validate_import(res$roles)
+    import_staged(c(v, list(error = NULL)))
+  })
+
+  output$lib_import_report <- renderUI({
+    s <- import_staged()
+    if (is.null(s)) return(NULL)
+    if (!is.null(s$error))
+      return(tags$div(class = "text-danger", style = "margin-top:8px;", s$error))
+    items <- lapply(seq_along(s$ok), function(i) {
+      r <- s$ok[[i]]; n <- s$notes[[i]]
+      tags$li(tags$b(r$name), tags$span(class = "text-muted",
+        paste0(" [", r$category, "] ", r$reasoning, " / ", r$evidence)),
+        if (length(n)) tags$div(class = "text-warning", style = "font-size:0.85em;",
+                                paste("⚠", paste(n, collapse = "; "))) else NULL)
+    })
+    rej <- lapply(s$rejected, function(x)
+      tags$li(tags$b(x$role$name), tags$span(class = "text-danger",
+                                             paste0(" -- skipped: ", paste(x$why, collapse = "; ")))))
+    tags$div(style = "margin-top:10px;",
+      tags$p(tags$b(paste0(
+        sprintf("%d role%s ready to import", length(s$ok), if (length(s$ok) == 1) "" else "s"),
+        if (length(s$rejected)) sprintf(", %d skipped", length(s$rejected)) else ""))),
+      if (length(items)) tags$ul(items) else NULL,
+      if (length(rej)) tags$ul(rej) else NULL)
+  })
+
+  observeEvent(input$lib_import_do, {
+    s <- import_staged()
+    if (is.null(s) || !is.null(s$error) || length(s$ok %||% list()) == 0) {
+      showNotification("Nothing staged -- press Preview first.", type = "warning"); return()
+    }
+    ok <- tryCatch({ append_roles_to_library(CONFIG_DIR, s$ok); TRUE },
+                   error = function(e) { showNotification(paste("Import failed:", conditionMessage(e)),
+                                                          type = "error"); FALSE })
+    if (!ok) return()
+    role_lib(c(role_lib(), s$ok))
+    updateSelectInput(session, "ag_role", choices = c("Custom", cfg_names(role_lib())))
+    import_staged(NULL)
+    updateTextAreaInput(session, "lib_import_text", value = "")
+    log_event("INFO", paste0("Imported ", length(s$ok), " role(s) into the library: ",
+                             paste(vapply(s$ok, function(r) r$name, character(1)), collapse = ", "), "."))
+    showNotification(paste0("Imported ", length(s$ok), " role(s) into the library."), type = "message")
   })
 
   # Save the selected agent's role into config/roles.json so it becomes a

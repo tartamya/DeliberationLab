@@ -114,10 +114,107 @@ roles_in_category <- function(cfg, category) {
 # entry uses (name, category, expertise, reasoning, evidence, communication,
 # bias). Used by the "Save to library" button so custom agents become reusable
 # in future sessions without hand-editing JSON.
-append_role_to_library <- function(config_dir, role) {
+append_role_to_library <- function(config_dir, role) append_roles_to_library(config_dir, list(role))
+
+# Bulk variant: one read/write for any number of roles (used by the importer).
+append_roles_to_library <- function(config_dir, roles) {
+  if (length(roles) == 0) return(invisible(NULL))
   path <- file.path(config_dir, "roles.json")
   obj <- jsonlite::fromJSON(readLines(path, warn = FALSE, encoding = "UTF-8"), simplifyVector = FALSE)
-  obj$roles <- c(obj$roles, list(role))
+  obj$roles <- c(obj$roles, roles)
   writeLines(jsonlite::toJSON(obj, auto_unbox = TRUE, pretty = TRUE), path, useBytes = TRUE)
   invisible(path)
+}
+
+# ---- Role import -------------------------------------------------------------
+# Header aliases -> canonical role field. Deliberately generous: roles are
+# usually drafted as a markdown table or a spreadsheet, where the columns get
+# called "Role", "Function", "What it must not do" rather than the JSON keys.
+.ROLE_FIELD_ALIASES <- c(
+  "name" = "name", "role" = "name", "title" = "name", "agent" = "name",
+  "category" = "category", "group" = "category", "type" = "category",
+  "expertise" = "expertise", "function" = "expertise", "specialism" = "expertise",
+  "specialty" = "expertise", "domain" = "expertise", "skills" = "expertise",
+  "reasoning" = "reasoning", "reasoningstyle" = "reasoning", "style" = "reasoning",
+  "evidence" = "evidence", "evidencepreference" = "evidence", "evidencetype" = "evidence",
+  "communication" = "communication", "communicationstyle" = "communication", "tone" = "communication",
+  "bias" = "bias", "leaning" = "bias",
+  "constraints" = "constraints", "constraint" = "constraints", "mustnot" = "constraints",
+  "whatitmustnotdo" = "constraints", "whatitmustnot" = "constraints", "boundary" = "constraints",
+  "prohibition" = "constraints", "prohibitions" = "constraints",
+  "creativity" = "creativity", "skepticism" = "skepticism", "scepticism" = "skepticism",
+  "risktolerance" = "risk_tolerance", "risk" = "risk_tolerance")
+
+.canon_field <- function(h) {
+  k <- tolower(gsub("[^A-Za-z]", "", h))          # drop spaces, punctuation, markdown emphasis
+  unname(.ROLE_FIELD_ALIASES[k])                   # NA when unrecognized
+}
+
+# Coerce one parsed record into the role shape, keeping only known fields.
+# Dials are clamped to 0-1 and omitted entirely when absent, so the agent
+# factory's own defaults apply.
+.normalize_imported_role <- function(r) {
+  chr <- function(k) { v <- r[[k]]; if (is.null(v) || length(v) == 0) "" else trimws(as.character(v)[1]) }
+  out <- list(
+    name = chr("name"), category = chr("category"), expertise = chr("expertise"),
+    reasoning = chr("reasoning"), evidence = chr("evidence"),
+    communication = chr("communication"), bias = chr("bias"), constraints = chr("constraints"))
+  if (!nzchar(out$category))  out$category  <- "Custom"
+  if (!nzchar(out$reasoning)) out$reasoning <- "Pragmatist"
+  if (!nzchar(out$evidence))  out$evidence  <- "Expert Consensus"
+  for (d in c("creativity", "skepticism", "risk_tolerance")) {
+    v <- suppressWarnings(as.numeric((r[[d]] %||% NA)[1]))
+    if (length(v) == 1 && !is.na(v)) out[[d]] <- max(0, min(1, v))
+  }
+  out
+}
+
+# Parse pasted role definitions. Accepts a JSON array/object, a markdown table,
+# or tab/comma-separated rows -- each with a header naming the fields. Returns
+# list(roles = <list of role records>, error = <message or NULL>).
+parse_roles_text <- function(txt) {
+  txt <- trimws(txt %||% "")
+  if (!nzchar(txt)) return(list(roles = list(), error = "Nothing pasted."))
+
+  # ---- JSON ----
+  if (substr(txt, 1, 1) %in% c("[", "{")) {
+    parsed <- tryCatch(jsonlite::fromJSON(txt, simplifyVector = FALSE), error = function(e) NULL)
+    if (is.null(parsed)) return(list(roles = list(), error = "That looks like JSON but could not be parsed."))
+    # Accept a bare array, a single object, or {"roles": [...]}.
+    if (!is.null(parsed$roles)) parsed <- parsed$roles
+    if (!is.null(parsed$name)) parsed <- list(parsed)
+    return(list(roles = lapply(parsed, .normalize_imported_role), error = NULL))
+  }
+
+  # ---- Table (markdown / TSV / CSV) ----
+  lines <- unlist(strsplit(txt, "\r?\n"))
+  lines <- lines[nzchar(trimws(lines))]
+  # Markdown separator rows (|---|---|) carry no data.
+  lines <- lines[!grepl("^[[:space:]|:+-]+$", lines)]
+  if (length(lines) < 2) return(list(roles = list(), error = "Need a header row and at least one role row."))
+  sep <- if (any(grepl("|", lines, fixed = TRUE))) "|" else if (any(grepl("\t", lines, fixed = TRUE))) "\t" else ","
+  split_row <- function(l) {
+    if (sep == "|") l <- gsub("^\\s*\\||\\|\\s*$", "", l)   # strip outer pipes
+    trimws(unlist(strsplit(l, sep, fixed = TRUE)))
+  }
+  header <- split_row(lines[1])
+  fields <- vapply(header, .canon_field, character(1))
+  if (!any(fields == "name", na.rm = TRUE))
+    return(list(roles = list(), error = paste0(
+      "No name column found. Header read as: ", paste(header, collapse = " / "),
+      ". Rename one column to Name (or Role).")))
+  roles <- lapply(lines[-1], function(l) {
+    cells <- split_row(l)
+    rec <- list()
+    for (i in seq_along(fields)) {
+      f <- fields[i]
+      if (is.na(f) || i > length(cells)) next
+      # Strip markdown emphasis from values (**bold**, *italics*).
+      rec[[f]] <- gsub("\\*+", "", cells[i])
+    }
+    .normalize_imported_role(rec)
+  })
+  roles <- Filter(function(r) nzchar(r$name), roles)
+  if (length(roles) == 0) return(list(roles = list(), error = "No rows with a non-empty name."))
+  list(roles = roles, error = NULL)
 }
