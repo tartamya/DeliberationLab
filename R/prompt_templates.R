@@ -165,9 +165,17 @@ build_turn_messages <- function(topic, history, kg_summary, agent, cfg,
   # Critical rules bind EVERY agent regardless of persona. Placed at the very
   # top of the system prompt (before the persona's rhetorical framing) and
   # marked as overriding, so accuracy/uncertainty beats winning the argument.
+  # These bind what an agent may ASSERT, not the stance it was assigned. The
+  # earlier wording ("override any rhetorical aim of your persona") told every
+  # agent to abandon its role, which flattened stance-taking roles (Optimist,
+  # Skeptic, Proponent, Red-Team) into neutral analysis -- role collapse caused
+  # by the app's own prompt. Honesty binds the claims; the role still stands.
   rules_block <- if (!is.null(critical_rules) && nzchar(trimws(critical_rules)))
-    paste0("CRITICAL RULES -- these OVERRIDE persuasion and any rhetorical aim of your persona; ",
-           "follow them exactly even when they weaken your side:\n", trimws(critical_rules), "\n\n") else ""
+    paste0("CRITICAL RULES -- these bind every factual claim you make and outrank any urge to win ",
+           "the argument. Follow them exactly even when they weaken your side. They do NOT dissolve ",
+           "your assigned role: keep arguing your assigned position, in your own voice, and make the ",
+           "strongest case it deserves -- just never misstate evidence to do it:\n",
+           trimws(critical_rules), "\n\n") else ""
   details_block <- if (!is.null(problem_details) && nzchar(trimws(problem_details)))
     paste0("\n\nProblem details / background:\n", trimws(problem_details)) else ""
   # Self-activating "engage with evidence" directive: only injected when the
