@@ -1979,7 +1979,7 @@ server <- function(input, output, session) {
               options = list(dom = "tp", pageLength = 6))
   })
 
-  # Shared save routine (used by the Settings button and the Debate Setup copy).
+  # Shared save routine (used by the Home button and the Debate Setup copy).
   do_save_session <- function(name) {
     # Blank name -> the default scheme <debate title>_<date-time>, so one click
     # saves under a meaningful name. Overwrite semantics: an EXPLICIT name may

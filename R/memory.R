@@ -93,6 +93,9 @@ list_session_meta <- function() {
                cost = j$cost %||% NA_real_, file = j$file %||% "", stringsAsFactors = FALSE)
   })
   df <- do.call(rbind, c(list(empty), Filter(Negate(is.null), rows)))
+  # Drop sidecars whose .rds is gone (deleted outside the app, or a save/delete
+  # that half-completed). Listing them offers a row that can only fail to load.
+  if (nrow(df) > 0) df <- df[df$file %in% rds, , drop = FALSE]
   # Include any .rds that lack a sidecar (legacy saves).
   legacy <- setdiff(rds, df$file)
   if (length(legacy) > 0) {
