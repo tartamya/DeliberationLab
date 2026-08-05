@@ -63,8 +63,8 @@
         "low",
         "high"
       ],
-      "live_search": { "enabled": true, "mode": "auto" },
-      "_note": "WEB-CONNECTED via xAI Live Search (mode=auto: the model searches only when it judges a query needs it, not on every turn). Citations, when returned, are appended to the turn as a 'Sources:' list -- same mechanism as Perplexity. Live Search bills per SOURCE retrieved (~$0.025/source, xAI's own metering) on top of tokens; this is NOT reflected in the app's cost tracker, which only sums token cost -- check the Sources count in the transcript to gauge actual spend. To disable, set live_search.enabled to false here."
+      "live_search": { "enabled": false, "mode": "auto" },
+      "_note": "Web search via xAI Live Search is OPT-IN: set live_search.enabled to true to attach `search_parameters` to Grok's requests (mode=auto: the model searches only when it judges a query needs it). Citations, when returned, are appended to the turn as a 'Sources:' list -- same mechanism as Perplexity. DEFAULT OFF because it is unverified against the live xAI API, and because searching shifts a model into a factual-reporting register that can flatten an assigned persona (an Optimist stops arguing the upside and just reports findings). If enabled, note that Live Search bills per SOURCE retrieved (~$0.025/source) on top of tokens and is NOT counted by the app's cost tracker -- the Sources count in the transcript is the visible proxy. A request that fails with search attached is automatically retried without it."
     },
     {
       "id": "sarvam",

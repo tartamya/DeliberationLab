@@ -209,8 +209,14 @@ llm_count_tokens <- function(text) {
   if (!isTRUE(res$ok) && grepl("reasoning_effort", res$error %||% "", fixed = TRUE)) {
     body$reasoning_effort <- NULL; res <- post(body)
   }
-  if (!isTRUE(res$ok) && grepl("search_parameters", res$error %||% "", fixed = TRUE)) {
-    body$search_parameters <- NULL; res <- post(body)   # model/endpoint doesn't support Live Search
+  # Live Search is ADDITIVE: if the request failed for ANY reason while it was
+  # attached, drop it and retry once. Matching the error text was too narrow --
+  # the API may reject the field with a message that never names it (generic
+  # 400, "unknown field", a validation error on a model that lacks the
+  # capability), and a feature we bolt on must never break a turn that would
+  # otherwise have worked.
+  if (!isTRUE(res$ok) && !is.null(body$search_parameters)) {
+    body$search_parameters <- NULL; res <- post(body)
   }
   if (!isTRUE(res$ok)) return(list(ok = FALSE, text = NULL, error = res$error))
 
