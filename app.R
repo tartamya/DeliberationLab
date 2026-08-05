@@ -393,18 +393,21 @@ ui <- page_navbar(
         hr(),
         tags$h6("Import roles"),
         p(class = "text-muted",
-          "Paste a JSON array, a markdown table, or rows copied from a spreadsheet -- ",
-          "with a header naming the columns (Name / Category / Expertise / Reasoning / ",
-          "Evidence / Communication / Bias / Constraints, plus optional Creativity, ",
-          "Skepticism, Risk tolerance). Preview first; importing appends to ",
-          "config/roles.json and the roles are usable immediately."),
-        textAreaInput("lib_import_text", NULL, rows = 5, width = "100%",
-                      placeholder = paste0(
-                        "| Name | Category | Expertise | Constraints |\n",
-                        "| Ethicist | Custom | applied ethics | Do not adjudicate empirical claims. |")),
+          "The box starts with a ready-made prompt: copy it into any LLM, then replace it ",
+          "with what comes back. It also accepts a markdown table or spreadsheet rows with a ",
+          "header naming the columns (Name / Category / Expertise / Reasoning / Evidence / ",
+          "Communication / Bias / Constraints, plus optional Creativity, Skepticism, Risk ",
+          "tolerance). Preview first; importing appends to config/roles.json and the roles ",
+          "are usable immediately."),
+        # Pre-filled with the generation prompt: copy it into any LLM, then
+        # replace it with the JSON that comes back. Built from the live config,
+        # so it always names the real vocabulary and the real taken names.
+        textAreaInput("lib_import_text", NULL, rows = 8, width = "100%",
+                      value = role_prompt_text(CONFIG, 5, cfg_names(CONFIG$roles))),
         div(
           actionButton("lib_import_preview", "Preview", class = "btn-sm"),
-          actionButton("lib_import_do", "Import", class = "btn-sm btn-success")
+          actionButton("lib_import_do", "Import", class = "btn-sm btn-success"),
+          actionButton("lib_import_reset", "↺ Restore prompt", class = "btn-sm btn-outline-secondary")
         ),
         uiOutput("lib_import_report")
       )
@@ -1120,8 +1123,24 @@ server <- function(input, output, session) {
     list(ok = ok, notes = notes, rejected = rejected)
   }
 
+  # Put the prompt back (refreshed with the current library's taken names).
+  observeEvent(input$lib_import_reset, {
+    updateTextAreaInput(session, "lib_import_text",
+                        value = role_prompt_text(cfg, 5, cfg_names(role_lib())))
+    import_staged(NULL)
+  })
+
   observeEvent(input$lib_import_preview, {
-    res <- parse_roles_text(input$lib_import_text)
+    txt <- input$lib_import_text %||% ""
+    # The box ships pre-filled with the prompt; previewing it would otherwise
+    # fail with a parser message that explains nothing about what to do next.
+    if (grepl("Respond with ONLY a JSON object", txt, fixed = TRUE)) {
+      import_staged(list(error = paste0(
+        "That is still the prompt. Copy it into an LLM, then paste the JSON it returns ",
+        "here -- or use Generate above to have the app do it.")))
+      return()
+    }
+    res <- parse_roles_text(txt)
     if (!is.null(res$error)) {
       import_staged(list(error = res$error)); return()
     }
@@ -1202,7 +1221,10 @@ server <- function(input, output, session) {
     role_lib(c(role_lib(), s$ok))
     updateSelectInput(session, "ag_role", choices = c("Custom", cfg_names(role_lib())))
     import_staged(NULL)
-    updateTextAreaInput(session, "lib_import_text", value = "")
+    # Restore the prompt rather than blanking the box, and refresh it so the
+    # just-imported names are listed as taken next time.
+    updateTextAreaInput(session, "lib_import_text",
+                        value = role_prompt_text(cfg, 5, cfg_names(role_lib())))
     log_event("INFO", paste0("Imported ", length(s$ok), " role(s) into the library: ",
                              paste(vapply(s$ok, function(r) r$name, character(1)), collapse = ", "), "."))
     showNotification(paste0("Imported ", length(s$ok), " role(s) into the library."), type = "message")

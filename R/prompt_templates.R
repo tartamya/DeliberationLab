@@ -272,6 +272,14 @@ build_planner_messages <- function(topic, cfg, n_agents_hint = NULL, problem_det
 # The configured vocabulary is injected so generated roles use real, wired-up
 # reasoning/evidence values, and existing names are listed so the model does not
 # propose one that would be rejected as a duplicate on import.
+# The generation prompt as a single copyable block, for the Import box's default
+# text: paste it into any LLM, bring the JSON back. Same builder as the in-app
+# generator, so what the user copies can never drift from what the app sends.
+role_prompt_text <- function(cfg, n = 5, existing = character(0)) {
+  m <- build_role_gen_messages(cfg, field = "", n = n, existing = existing)
+  paste0(m[[1]]$content, "\n\n", m[[2]]$content)
+}
+
 build_role_gen_messages <- function(cfg, field = "", n = 5, existing = character(0)) {
   vocab <- function(items) paste(cfg_names(items), collapse = ", ")
   field <- trimws(field %||% "")
