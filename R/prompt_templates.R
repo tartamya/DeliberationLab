@@ -15,8 +15,17 @@
 extract_json_block <- function(txt) {
   txt <- gsub("```json|```", "", txt)
   chars <- strsplit(txt, "", fixed = TRUE)[[1]]
-  start <- which(chars == "{")[1]
+  # Match whichever container opens FIRST. Scanning only for "{" truncates a
+  # top-level ARRAY to its first object -- which silently turned a 5-role reply
+  # into 1 role, since the other meta calls all request an object and never hit
+  # this path.
+  ob <- which(chars == "{")[1]
+  ab <- which(chars == "[")[1]
+  as_array <- !is.na(ab) && (is.na(ob) || ab < ob)
+  start <- if (as_array) ab else ob
   if (is.na(start)) return(txt)
+  open  <- if (as_array) "[" else "{"
+  close <- if (as_array) "]" else "}"
   depth <- 0L; in_string <- FALSE; escape_next <- FALSE; end <- NA_integer_
   for (i in seq(start, length(chars))) {
     ch <- chars[i]
@@ -26,8 +35,8 @@ extract_json_block <- function(txt) {
       else if (ch == '"') in_string <- FALSE
     } else {
       if (ch == '"') in_string <- TRUE
-      else if (ch == "{") depth <- depth + 1L
-      else if (ch == "}") { depth <- depth - 1L; if (depth == 0L) { end <- i; break } }
+      else if (ch == open) depth <- depth + 1L
+      else if (ch == close) { depth <- depth - 1L; if (depth == 0L) { end <- i; break } }
     }
   }
   if (is.na(end)) return(txt) # unbalanced/truncated -- let fromJSON error honestly
@@ -292,10 +301,11 @@ build_role_gen_messages <- function(cfg, field = "", n = 5, existing = character
     if (length(existing))
       paste0("5. These names are ALREADY TAKEN -- do not reuse any of them:\n",
              paste(existing, collapse = ", "), "\n") else "",
-    "\nRespond with ONLY a JSON array of exactly ", n, " objects (no prose, no fences):\n",
-    '[{"name": string, "category": string, "expertise": string, "reasoning": string, ',
+    "\nRespond with ONLY a JSON object (no prose, no fences) whose `roles` array holds ",
+    "exactly ", n, " entries:\n",
+    '{"roles": [{"name": string, "category": string, "expertise": string, "reasoning": string, ',
     '"evidence": string, "communication": string, "bias": string, "constraints": string, ',
-    '"creativity": number, "skepticism": number, "risk_tolerance": number}]')
+    '"creativity": number, "skepticism": number, "risk_tolerance": number}]}')
   user <- if (nzchar(field))
     paste0("Design ", n, " roles for the field: ", field, ".")
   else paste0("Design ", n, " generally useful roles.")
