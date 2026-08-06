@@ -264,7 +264,7 @@ ui <- page_navbar(
           tags$label(class = "control-label", "Apply critical rules"),
           # Not "every agent turn" any more: a participant with its own ruleset
           # keeps it whatever this says, and one with rules unticked gets none.
-          checkboxInput("apply_rules_debate", "During deliberation (default for participants)", value = TRUE),
+          checkboxInput("apply_rules_debate", "During deliberation (default for participants)", value = FALSE),
           checkboxInput("apply_rules_consensus", "At consensus (final verdict)", value = TRUE),
           helpText("The deliberation setting is the default. On the Participants tab each ",
                    "participant can override this ruleset or opt out of rules entirely."),
@@ -382,6 +382,14 @@ ui <- page_navbar(
         helpText("Starts from the Planner tab's ruleset. Edit to override it for this ",
                  "participant only; leave it matching the Planner text to keep inheriting ",
                  "future changes. Unticked, this participant debates with no rules at all."),
+        # With the Planner default off, an INHERITING participant receives nothing
+        # even though the box above shows the ruleset. Say so rather than let the
+        # displayed text imply it is in force.
+        conditionalPanel("input.apply_rules_debate == false && input.ag_apply_rules == true",
+          tags$p(class = "text-warning", style = "margin-top:6px;",
+                 tags$b("Note: "), "the Planner tab's \"During deliberation\" setting is off, ",
+                 "so participants that inherit receive no rules. Edit the box above to give ",
+                 "this participant its own ruleset, or tick that setting to apply the shared one.")),
         hr(),
         actionButton("ag_add", "Add Agent", class = "btn-success"),
         helpText("Adds a new participant, or saves the one selected in the roster ",
