@@ -16,9 +16,10 @@
     },
     {
       "name": "Delphi",
-      "description": "Anonymous iterative convergence toward consensus.",
+      "description": "Independent first estimates, then iterative convergence. Round 1 is blind: nobody sees another participant before committing.",
       "recommended_moderator": "Facilitator",
       "min_agents": 3,
+      "independent_first_round": true,
       "phases": {
         "opening": "Give your independent estimate/position on the question, with brief justification. Do not reference other participants.",
         "response": "Having seen the range of positions, state whether and why you are revising your own. Move toward or away from the group as the arguments warrant.",
@@ -153,6 +154,33 @@
         "response": "Question the previous testimony on feasibility, cost, or unintended consequences.",
         "revision": "Recommend amendments that would improve the proposal.",
         "closing": "State your final recommendation to the committee."
+      }
+    },
+    {
+      "name": "Six Thinking Hats",
+      "description": "De Bono's parallel thinking: the WHOLE panel wears the same hat each round -- facts, then benefits, cautions, gut reaction, new ideas, and finally process. Unlike every other mode this is driven by the round, not by each agent's role, so it works best with agents that carry no strong stance. Run 6 rounds for one hat each.",
+      "recommended_moderator": "Facilitator",
+      "min_agents": 2,
+      "independent_first_round": true,
+      "phase_sequence": [
+        { "name": "White hat -- facts",
+          "instruction": "EVERYONE wears the WHITE hat this round; set your usual stance aside entirely -- for this round you are not arguing a position. State only what is known: facts, figures, sources, and precisely where the information is missing. Distinguish verified fact from assumption from guess. Ask no rhetorical questions and draw no conclusions." },
+        { "name": "Yellow hat -- benefits",
+          "instruction": "EVERYONE wears the YELLOW hat this round. Set your usual stance aside. Look only for value: what could go right, who gains, under what conditions the best case is realistic, and why an optimistic reading might be the correct one. Do not balance this with objections -- the Black hat round handles those." },
+        { "name": "Black hat -- cautions",
+          "instruction": "EVERYONE wears the BLACK hat this round. Set your usual stance aside. Look only for what could fail: risks, weak assumptions, unintended consequences, who is harmed, and the conditions under which this goes badly. Be specific and material -- caution is not pessimism, so name the mechanism of failure, not a mood." },
+        { "name": "Red hat -- intuition",
+          "instruction": "EVERYONE wears the RED hat this round. Set your usual stance aside -- this round alone, nobody is required to be rigorous, cite anything, or stay in character. State your gut reaction, hunch or unease in a few sentences and do NOT justify it: no evidence, no reasoning, no hedging. The point is to surface the feeling the analysis has been suppressing, so it is on the record where it can be examined." },
+        { "name": "Green hat -- new ideas",
+          "instruction": "EVERYONE wears the GREEN hat this round. Set your usual stance aside, and set aside whether ideas are realistic. Generate alternatives, reframings and possibilities nobody has raised: a different way to pose the question, an option outside the choices assumed so far, a provocation worth exploring. Quantity and novelty over defensibility." },
+        { "name": "Blue hat -- process and conclusion",
+          "instruction": "EVERYONE wears the BLUE hat this round. Step outside the content and review the thinking itself: which hat produced the most, which was thin, what the panel now actually knows versus assumes, and what remains unresolved. Close with the most defensible summary the six rounds support -- and say plainly if they do not support one." }
+      ],
+      "phases": {
+        "opening": "State only what is known: facts, figures and where information is missing. No positions.",
+        "response": "Take the perspective this round calls for -- benefits, cautions, intuition or new ideas -- setting your usual stance aside.",
+        "revision": "Generate alternatives and reframings nobody has raised yet.",
+        "closing": "Review the thinking itself and give the most defensible summary the discussion supports."
       }
     },
     {
