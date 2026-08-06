@@ -331,6 +331,19 @@ ui <- page_navbar(
           sliderInput("ag_risk", "Risk tolerance", 0, 1, 0.5),
           sliderInput("ag_confidence", "Starting confidence", 0, 1, 0.5),
           textAreaInput("ag_prompt", "Custom instructions (optional)", rows = 2),
+          hr(),
+          checkboxInput("ag_apply_rules", "Apply critical rules to this participant", value = TRUE),
+          conditionalPanel("input.ag_apply_rules == true",
+            # Seeded with the shipped ruleset so the box is never blank on load;
+            # selecting a participant replaces it with what that agent receives.
+            textAreaInput("ag_rules", "Rules for this participant", rows = 6, width = "100%",
+                          value = CONFIG$critical_rules %||% ""),
+            actionButton("ag_rules_reset", "↺ Use the Planner tab's rules",
+                         class = "btn-sm btn-outline-secondary")),
+          helpText("Starts from the Planner tab's ruleset. Edit to override it for this ",
+                   "participant only; leave it matching the Planner text to keep inheriting ",
+                   "future changes. Unticked, this participant debates with no rules at all."),
+          br(),
           actionButton("ag_add", "Add Agent", class = "btn-success"),
           helpText("Select a row to edit it (button becomes Save). Click it again to deselect.")
         )
@@ -925,6 +938,9 @@ server <- function(input, output, session) {
     updateTextInput(session, "ag_expertise", value = "")
     updateTextAreaInput(session, "ag_goal", value = "")
     updateTextAreaInput(session, "ag_prompt", value = "")
+    # A new agent starts from the Planner tab's ruleset, rules applied.
+    updateCheckboxInput(session, "ag_apply_rules", value = TRUE)
+    updateTextAreaInput(session, "ag_rules", value = input$critical_rules %||% "")
     for (s in c("ag_creativity", "ag_skepticism", "ag_risk", "ag_confidence"))
       updateSliderInput(session, s, value = 0.5)
   }
@@ -951,6 +967,11 @@ server <- function(input, output, session) {
       updateSliderInput(session, "ag_risk", value = a$risk_tolerance)
       updateSliderInput(session, "ag_confidence", value = a$confidence)
       updateTextAreaInput(session, "ag_prompt", value = a$prompt)
+      # Show this participant's own rules; an agent that inherits shows the
+      # Planner text, so the box always displays what the agent will receive.
+      updateCheckboxInput(session, "ag_apply_rules", value = isTRUE(a$apply_rules %||% TRUE))
+      updateTextAreaInput(session, "ag_rules",
+                          value = if (nzchar(a$rules %||% "")) a$rules else (input$critical_rules %||% ""))
       updateActionButton(session, "ag_add", label = "Save Changes")
     } else {
       editing_idx(NULL); updateActionButton(session, "ag_add", label = "Add Agent")
@@ -972,6 +993,12 @@ server <- function(input, output, session) {
                    constraints = r$constraints %||% "",
                    history_view = r$history_view %||% "",
                    digest_rounds = if (length(dr) == 0 || is.na(dr)) 0L else dr,
+                   # Store "" when the box still matches the Planner text, so the
+                   # agent keeps INHERITING later edits there; store the text only
+                   # once it genuinely differs, which is what an override means.
+                   rules = { txt <- trimws(input$ag_rules %||% "")
+                             if (identical(txt, trimws(input$critical_rules %||% ""))) "" else txt },
+                   apply_rules = isTRUE(input$ag_apply_rules),
                    goal = input$ag_goal, creativity = input$ag_creativity, skepticism = input$ag_skepticism,
                    risk_tolerance = input$ag_risk, confidence = input$ag_confidence,
                    prompt = input$ag_prompt, provider = input$ag_provider)
@@ -1356,6 +1383,11 @@ server <- function(input, output, session) {
     showNotification(paste0("Imported ", length(s$ok), " role(s) into the library."), type = "message")
   })
 
+  # Put the Planner tab's ruleset back in the box (drops this agent's override).
+  observeEvent(input$ag_rules_reset, {
+    updateTextAreaInput(session, "ag_rules", value = input$critical_rules %||% "")
+  })
+
   # Save the selected agent's role into config/roles.json so it becomes a
   # reusable, pickable role in future sessions (and this one's role picker).
   observeEvent(input$save_agent_to_library, {
@@ -1580,7 +1612,10 @@ server <- function(input, output, session) {
                         dimensions_txt = dimensions_txt(),
                         language = if (nzchar(input$language)) input$language else NULL,
                         problem_details = input$problem_details,
-                        critical_rules = if (!identical(input$apply_rules_debate, FALSE)) input$critical_rules else NULL)
+                        # Same resolution the run uses, so the preview shows the
+                        # rules THIS participant will actually receive.
+                        critical_rules = agent_rules(
+                          a, if (!identical(input$apply_rules_debate, FALSE)) input$critical_rules else ""))
   })
   output$preview_system <- renderText(preview_msgs()[[1]]$content)
   output$preview_user   <- renderText(preview_msgs()[[2]]$content)
@@ -1786,7 +1821,11 @@ server <- function(input, output, session) {
                                  paste0(round(mean(rv$analytics$confidence, na.rm = TRUE)), "%") else NULL,
                                current_consensus = if (!blind && !audit_view && !is.null(rv$consensus)) rv$consensus$consensus else NULL,
                                language = lang, use_cache = use_cache,
-                               problem_details = pdetails, critical_rules = crules)
+                               problem_details = pdetails,
+                               # Per-participant: their own ruleset if they have one,
+                               # the Planner tab's if they inherit, nothing at all if
+                               # their rules checkbox is off.
+                               critical_rules = agent_rules(a, crules))
               if (isTRUE(turn$ok)) break
               run_failed_keys <<- union(run_failed_keys, slot_key(a$provider, a$model))
               rp <- pick_replacement(a$provider, a$model, run_failed_keys, used_slot_keys())

@@ -17,7 +17,8 @@ new_agent <- function(cfg, name, role = "", category = "", expertise = "",
                       communication = "", bias = "", goal = "",
                       creativity = 0.5, skepticism = 0.5, risk_tolerance = 0.5,
                       confidence = 0.5, prompt = "", provider = NULL,
-                      constraints = "", history_view = "", digest_rounds = 0) {
+                      constraints = "", history_view = "", digest_rounds = 0,
+                      rules = "", apply_rules = TRUE) {
   provider <- provider %||% (if (length(cfg$providers)) cfg$providers[[1]]$id else "openai")
   list(
     id = digest::digest(paste(name, role, Sys.time(), runif(1)), algo = "crc32"),
@@ -29,6 +30,10 @@ new_agent <- function(cfg, name, role = "", category = "", expertise = "",
     # agent sees the moderator's conclusion-free claims digest instead of the
     # verbatim transcript (the Source Auditor's independent-audit window).
     history_view = history_view, digest_rounds = digest_rounds,
+    # Per-participant critical rules. `rules` empty means inherit the Planner
+    # tab's ruleset; non-empty overrides it for this agent alone. apply_rules
+    # FALSE means no rules at all -- a free hand in the debate.
+    rules = rules, apply_rules = isTRUE(apply_rules),
     goal = goal, creativity = creativity, skepticism = skepticism,
     risk_tolerance = risk_tolerance, confidence = confidence, prompt = prompt,
     provider = provider,
@@ -111,6 +116,18 @@ agent_from_role <- function(cfg, role_name, provider = NULL, overrides = list())
          communication = "", bias = "")
   } else r
   agent_from_role_record(cfg, base, provider = provider, overrides = overrides)
+}
+
+# The critical rules a given agent actually receives:
+#   - its checkbox off      -> nothing (a free hand in the debate)
+#   - its own rules set     -> those, overriding the Planner tab's ruleset
+#   - otherwise             -> the global ruleset it inherits
+# Kept here rather than inline in the round loop so the precedence is stated
+# once and the same answer is used by the run and by the Prompt Preview.
+agent_rules <- function(agent, global_rules) {
+  if (!isTRUE(agent$apply_rules %||% TRUE)) return("")
+  own <- trimws(agent$rules %||% "")
+  if (nzchar(own)) own else (global_rules %||% "")
 }
 
 # Roster names must stay distinct: they key the transcript, the analytics table
