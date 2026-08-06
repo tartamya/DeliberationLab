@@ -318,7 +318,9 @@ ui <- page_navbar(
         card_body(
           textInput("ag_name", "Name", value = "New Agent"),
           selectInput("ag_role", "Role (from roles.json)",
-                      choices = c("Custom", cfg_names(CONFIG$roles))),
+                      # merged: the picker must offer the built-in panel roles too,
+                      # otherwise they exist in the library but cannot be chosen here.
+                      choices = c("Custom", cfg_names(merge_builtin_roles(CONFIG$roles)))),
           textInput("ag_expertise", "Expertise", value = ""),
           selectInput("ag_reasoning", "Reasoning style", choices = vocab_choices(CONFIG$reasoning_styles)),
           selectInput("ag_evidence", "Evidence preference", choices = vocab_choices(CONFIG$evidence_types)),
@@ -407,7 +409,8 @@ ui <- page_navbar(
         # replace it with the JSON that comes back. Built from the live config,
         # so it always names the real vocabulary and the real taken names.
         textAreaInput("lib_import_text", NULL, rows = 8, width = "100%",
-                      value = role_prompt_text(CONFIG, 5, cfg_names(CONFIG$roles))),
+                      # merged, so the prompt lists the built-ins as taken names too
+                      value = role_prompt_text(CONFIG, 5, cfg_names(merge_builtin_roles(CONFIG$roles)))),
         div(
           actionButton("lib_import_preview", "Preview", class = "btn-sm"),
           actionButton("lib_import_do", "Import", class = "btn-sm btn-success"),
@@ -890,7 +893,10 @@ server <- function(input, output, session) {
   # grows when "Save to library" appends one, so a role saved this session is
   # immediately pickable and seatable -- previously only its NAME reached the
   # dropdown, so selecting it prefilled nothing.
-  role_lib <- reactiveVal(CONFIG$roles)
+  # Built-ins merged in for any name roles.json does not define, so the four
+  # panel roles are visible and selectable everywhere -- not merely resolvable
+  # deep inside agent_from_role.
+  role_lib <- reactiveVal(merge_builtin_roles(CONFIG$roles))
 
   # Selecting a role prefills expertise/reasoning/evidence and any dial presets.
   observeEvent(input$ag_role, {
@@ -952,17 +958,20 @@ server <- function(input, output, session) {
   }, ignoreNULL = FALSE)
 
   observeEvent(input$ag_add, {
+    # One lookup for every role-derived field. Six separate cfg_find() calls used
+    # to sit here, which is how this path drifted from the by-name resolution the
+    # planner and shuffle use.
+    r <- cfg_find(role_lib(), input$ag_role)
+    dr <- suppressWarnings(as.integer((r$digest_rounds %||% 0)[1]))
     a <- new_agent(cfg, name = input$ag_name,
                    role = if (identical(input$ag_role, "Custom")) input$ag_name else input$ag_role,
-                   category = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "Custom" else r$category },
+                   category = if (is.null(r)) "Custom" else r$category,
                    expertise = input$ag_expertise, reasoning = input$ag_reasoning, evidence = input$ag_evidence,
-                   communication = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$communication %||% "" },
-                   bias = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$bias %||% "" },
-                   constraints = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$constraints %||% "" },
-                   history_view = { r <- cfg_find(role_lib(), input$ag_role); if (is.null(r)) "" else r$history_view %||% "" },
-                   digest_rounds = { r <- cfg_find(role_lib(), input$ag_role)
-                                     dr <- suppressWarnings(as.integer((if (is.null(r)) 0 else r$digest_rounds %||% 0)[1]))
-                                     if (length(dr) == 0 || is.na(dr)) 0L else dr },
+                   communication = r$communication %||% "",
+                   bias = r$bias %||% "",
+                   constraints = r$constraints %||% "",
+                   history_view = r$history_view %||% "",
+                   digest_rounds = if (length(dr) == 0 || is.na(dr)) 0L else dr,
                    goal = input$ag_goal, creativity = input$ag_creativity, skepticism = input$ag_skepticism,
                    risk_tolerance = input$ag_risk, confidence = input$ag_confidence,
                    prompt = input$ag_prompt, provider = input$ag_provider)
@@ -1055,19 +1064,23 @@ server <- function(input, output, session) {
     lib <- role_lib()
     if (length(lib) == 0)
       return(data.frame(Role = character(), Category = character(),
-                        Expertise = character(), Rules = character()))
+                        Expertise = character(), Rules = character(), Source = character()))
     data.frame(
       Role      = vapply(lib, function(r) r$name %||% "", character(1)),
       Category  = vapply(lib, function(r) r$category %||% "", character(1)),
       Expertise = vapply(lib, function(r) r$expertise %||% "", character(1)),
       Rules     = vapply(lib, function(r) if (nzchar(r$constraints %||% "")) "✓" else "", character(1)),
+      # Built-in = supplied by the app, not from roles.json. Without this a role
+      # the user never added simply appears, with no explanation.
+      Source    = vapply(lib, function(r) if (is_builtin_record(r)) "built-in" else "library", character(1)),
       stringsAsFactors = FALSE)
   })
 
   output$library_table <- renderDT({
     datatable(library_df(), rownames = FALSE, selection = "multiple", filter = "top",
               options = list(pageLength = 8, lengthMenu = c(5, 8, 15, 30), dom = "ltip",
-                             columnDefs = list(list(width = "46px", targets = 3))))
+                             columnDefs = list(list(width = "46px", targets = 3),
+                                               list(width = "70px", targets = 4))))
   })
 
   # The library table is rebuilt whenever role_lib() changes, which clears the
@@ -1158,9 +1171,10 @@ server <- function(input, output, session) {
         tags$p(class = "text-muted",
                tags$b("Note: "), paste(needed, collapse = ", "),
                if (length(needed) == 1) " is" else " are",
-               " seated by name by the five-role panel. Deleting from the library is safe -- ",
-               "the panel falls back to the built-in definition, so it keeps its constraints. ",
-               "Your edits to these roles would be lost, though.") else NULL,
+               " supplied by the app for the five-role panel. Deleting removes your ",
+               "customization and reverts to the built-in definition -- the ",
+               if (length(needed) == 1) "role stays" else "roles stay",
+               " in the library and the panel keeps working.") else NULL,
       tags$p(class = "text-muted",
              "config/roles.json is backed up beside itself first. Seated agents are unaffected."),
       footer = tagList(
@@ -1194,7 +1208,10 @@ server <- function(input, output, session) {
                     error = function(e) { showNotification(paste("Delete failed:", conditionMessage(e)),
                                                            type = "error"); NULL })
     if (is.null(res)) return()
-    role_lib(Filter(function(r) !((r$name %||% "") %in% nms), role_lib()))
+    # Re-merge after removing: deleting a role whose name is also a built-in
+    # reverts it to the app's definition rather than making it vanish, which is
+    # the same thing that happens on the next restart.
+    role_lib(merge_builtin_roles(Filter(function(r) !((r$name %||% "") %in% nms), role_lib())))
     updateSelectInput(session, "ag_role", choices = c("Custom", cfg_names(role_lib())))
     selectRows(library_proxy, NULL)
     delete_pending(character(0))

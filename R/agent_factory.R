@@ -82,6 +82,24 @@ new_agent <- function(cfg, name, role = "", category = "", expertise = "",
 # Is this role name supplied by the app rather than the user's library?
 is_builtin_role <- function(name) !is.null(.BUILTIN_ROLES[[as.character(name %||% "")]])
 
+# Is this exact record the app's built-in (rather than a user definition that
+# happens to share the name)? Used to label the library table.
+is_builtin_record <- function(r) {
+  b <- .BUILTIN_ROLES[[as.character(r$name %||% "")]]
+  !is.null(b) && identical(r, b)
+}
+
+# Fill in any built-in the library does not already define. Without this the
+# built-ins are resolvable inside agent_from_role but invisible everywhere else:
+# not listed in the library table, not offered in the role picker, not found by
+# the manual add form. A library definition of the same name always wins, so
+# this only ever fills gaps.
+merge_builtin_roles <- function(roles) {
+  roles <- roles %||% list()
+  have <- vapply(roles, function(r) as.character(r$name %||% ""), character(1))
+  c(roles, unname(.BUILTIN_ROLES[setdiff(names(.BUILTIN_ROLES), have)]))
+}
+
 agent_from_role <- function(cfg, role_name, provider = NULL, overrides = list()) {
   # Library first (so a user definition overrides), then the built-in floor,
   # then the bare fallback for a role the planner invented.
