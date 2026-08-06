@@ -656,6 +656,33 @@ server <- function(input, output, session) {
   # Append an entry to the Run log (Debate Setup tab). level is
   # "ERROR" | "WARN" | "INFO" | "API" (API = per-call trace, not counted as an
   # issue in the summary). Bounded to the most recent 400 entries.
+  # Report the input load of a turn's prompt to the run log, just before it is
+  # sent. Uses llm_count_tokens -- the same estimator llm_chat uses for its
+  # context-window guard -- so the number here and the one that can reject a
+  # request are always the same. Split into system/user because they grow for
+  # different reasons: the system block is persona + rules (roughly fixed), the
+  # user block carries the topic, background and the rolling history window.
+  log_prompt_load <- function(agent, round, msgs) {
+    part <- function(role) {
+      txt <- vapply(Filter(function(m) identical(m$role, role), msgs),
+                    function(m) as.character(m$content %||% ""), character(1))
+      llm_count_tokens(txt)
+    }
+    sys_t <- part("system"); usr_t <- part("user"); tot <- sys_t + usr_t
+    prov <- provider_by_id(cfg, agent$provider)
+    ctx  <- suppressWarnings(as.numeric(prov$context_window %||% NA))
+    pct  <- if (!is.na(ctx) && ctx > 0) paste0(" = ", round(100 * tot / ctx), "% of ",
+                                               format(ctx, big.mark = ","), " ctx") else ""
+    msg <- sprintf("Prompt load R%d [%s] %s/%s | ~%s in (sys %s + user %s)%s",
+                   round, agent$name, agent$provider, agent$model %||% "?",
+                   format(tot, big.mark = ","), format(sys_t, big.mark = ","),
+                   format(usr_t, big.mark = ","), pct)
+    # Crowding the window is worth a warning: the output budget gets squeezed
+    # first (effective_output_tokens), and past the window the call is refused.
+    if (!is.na(ctx) && tot > 0.75 * ctx) log_event("WARN", paste0(msg, " -- nearing the context window"))
+    else log_event("API", msg)
+  }
+
   log_event <- function(level, msg) {
     entry <- list(time = format(Sys.time(), "%H:%M:%S"), level = level, msg = as.character(msg))
     rv$run_log <- c(rv$run_log, list(entry))
@@ -1735,6 +1762,7 @@ server <- function(input, output, session) {
               turn <- run_turn(cfg, a, phase, topic, hist_for_turn, rv$kg, mode_name, obj_fragment,
                                dims_txt, r, resolve_api_key(cfg, a$provider, rv$ui_keys),
                                max_tokens, temperature, reff,
+                               on_prompt = function(msgs) log_prompt_load(a, r, msgs),
                                history_override_txt = if (audit_view) digest_txt else NULL,
                                current_confidence = if (!blind && !audit_view && !is.null(rv$analytics) && nrow(rv$analytics) > 0)
                                  paste0(round(mean(rv$analytics$confidence, na.rm = TRUE)), "%") else NULL,

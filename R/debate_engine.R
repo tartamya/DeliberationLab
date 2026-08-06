@@ -61,7 +61,7 @@ run_turn <- function(cfg, agent, phase_instruction, topic, history, kg,
                      reasoning_effort, current_confidence = NULL,
                      current_consensus = NULL, language = NULL, use_cache = FALSE,
                      problem_details = NULL, critical_rules = NULL,
-                     history_override_txt = NULL) {
+                     history_override_txt = NULL, on_prompt = NULL) {
   msgs <- build_turn_messages(
     topic = topic, history = history, kg_summary = kg_summary_text(kg), agent = agent, cfg = cfg,
     phase_instruction = phase_instruction, mode_name = mode_name,
@@ -70,6 +70,11 @@ run_turn <- function(cfg, agent, phase_instruction, topic, history, kg,
     current_confidence = current_confidence, current_consensus = current_consensus,
     language = language, problem_details = problem_details, critical_rules = critical_rules,
     history_override_txt = history_override_txt)
+  # Hand the assembled prompt to the caller BEFORE the API call, so the run log
+  # can report the input load of the exact messages being sent. Taking the real
+  # `msgs` (rather than rebuilding them) means the figure cannot drift from what
+  # actually goes out. Never allowed to break a turn.
+  if (is.function(on_prompt)) try(on_prompt(msgs), silent = TRUE)
   res <- llm_chat(cfg, agent$provider, msgs, api_key, model = agent$model %||% NULL,
                   max_tokens = max_tokens, temperature = temperature,
                   reasoning_effort = reasoning_effort, use_cache = use_cache)
