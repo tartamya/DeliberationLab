@@ -117,7 +117,14 @@ ui <- page_navbar(
   id = "navbar",
   theme = app_theme(),
   header = tags$head(
-    tags$link(rel = "stylesheet", href = "custom.css"),
+    # Version the stylesheet with its own modification time. Browsers cache
+    # www/custom.css aggressively, so a CSS edit appeared not to have taken
+    # effect until the user happened to hard-refresh -- which is not something
+    # they should have to know. The query changes whenever the file does.
+    tags$link(rel = "stylesheet",
+              href = paste0("custom.css?v=", as.integer(tryCatch(
+                as.numeric(file.info(file.path(APP_DIR, "www", "custom.css"))$mtime),
+                error = function(e) 0)))),
     # Client-side clipboard copy. Triggered from the server via
     # session$sendCustomMessage("clipboard_copy", <text>). Uses the async
     # Clipboard API in a secure context (localhost counts) and falls back to

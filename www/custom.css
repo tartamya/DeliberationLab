@@ -33,7 +33,9 @@ pre.preview-box {
 .run-log {
   max-height: 380px; overflow-y: auto; border: 1px solid #DFE1E6; border-radius: 6px;
   background: #FBFCFD; padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 100%; line-height: 1.55;
+  /* rem, not %, so a parent card can never scale this down; a notch above body
+     text because the run log is read closely for errors and token figures. */
+  font-size: 1.05rem; line-height: 1.6;
 }
 .run-log-line { white-space: pre-wrap; word-break: break-word; padding: 2px 0; border-bottom: 1px solid #F0F2F4; }
 .run-log-time { color: #98A2B3; }
