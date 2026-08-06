@@ -258,7 +258,13 @@ build_planner_messages <- function(topic, cfg, n_agents_hint = NULL, problem_det
     "- Discussion dimensions: ", vocab(cfg$dimensions), "\n",
     "- Expert roles: ", vocab(cfg$roles), "\n",
     "- Reasoning styles: ", vocab(cfg$reasoning_styles), "\n",
-    "- Debate modes: ", vocab(cfg$debate_modes), "\n",
+    # Modes carry their `suited_to` line, not just a name. A bare list of names
+    # left the planner inferring what "Fishbowl" or "Narrative Forge" does from
+    # the word alone, which is why its mode choice looked arbitrary.
+    "- Debate modes -- choose the one whose SHAPE matches the question:\n",
+    paste(vapply(cfg$debate_modes, function(m)
+      paste0("    * ", m$name, " -- ", m$suited_to %||% m$description %||% ""),
+      character(1)), collapse = "\n"), "\n",
     "- Moderator types: ", vocab(cfg$moderators), "\n",
     "- Evidence types: ", vocab(cfg$evidence_types), "\n\n",
     "HONOUR EXPLICIT DESIGN INSTRUCTIONS: the user's problem details may contain explicit ",
@@ -279,6 +285,8 @@ build_planner_messages <- function(topic, cfg, n_agents_hint = NULL, problem_det
     '"experts": [{"role": string, "reasoning": string, "evidence": string, "why": string}], ',
     '"debate_questions": [string], ',
     '"recommended_mode": string, "recommended_moderator": string, ',
+    '"mode_rationale": string (ONE sentence: why that mode\'s shape fits THIS question -- ',
+    'name the property of the question that decided it), ',
     '"expected_agreements": [string], "expected_controversies": [string], ',
     '"required_evidence": [string], "recommended_num_agents": number, "rationale": string}'
   )

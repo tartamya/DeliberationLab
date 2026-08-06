@@ -12,7 +12,8 @@
         "cross_examination": "Ask one pointed question exposing a weakness in the opposing side, then answer the strongest question posed to you.",
         "revision": "Concede any point the debate has genuinely won against you, and sharpen the argument you are most confident in.",
         "closing": "Deliver a closing statement: summarize why your side should prevail on the balance of arguments."
-      }
+      },
+      "suited_to": "A single contested proposition with two defensible sides and a leading candidate answer. Factual or mixed. Goal is resolution: which side survives rebuttal. Output is a reasoned verdict."
     },
     {
       "name": "Delphi",
@@ -25,7 +26,8 @@
         "response": "Having seen the range of positions, state whether and why you are revising your own. Move toward or away from the group as the arguments warrant.",
         "reflection": "Identify the remaining source of divergence in the group and what evidence would resolve it.",
         "closing": "Give your final position and your confidence in it."
-      }
+      },
+      "suited_to": "Quantitative estimation under wide, genuine uncertainty where expertise is real but evidence is thin. Goal is characterising the honest range, not picking a winner. Output is a converged estimate with its residual spread."
     },
     {
       "name": "Courtroom",
@@ -37,7 +39,8 @@
         "response": "Examine the evidence just presented: what does it prove, what does it not, and what is missing?",
         "cross_examination": "Cross-examine the opposing argument: expose assumptions, gaps, and admissibility problems.",
         "closing": "Deliver your closing argument to the finder of fact."
-      }
+      },
+      "suited_to": "A binary decision against a fixed body of evidence, where the question is whether a threshold is met. Factual. Goal is resolution under an explicit standard of proof. Output is a finding."
     },
     {
       "name": "Scientific Conference",
@@ -49,7 +52,8 @@
         "response": "Critically review the most recent hypothesis: strengths, flaws, confounders, and missing controls.",
         "reflection": "Assess the statistical/evidentiary basis of the round's claims and flag weak inference.",
         "closing": "Synthesize: what is well-supported, what needs more study, and the strongest hypothesis standing."
-      }
+      },
+      "suited_to": "Several competing explanations and a body of mixed evidence. Factual, wide uncertainty. Goal is elimination: which hypotheses survive, which are ruled out, what would discriminate between the rest."
     },
     {
       "name": "Peer Review",
@@ -61,7 +65,8 @@
         "response": "Review against the criteria: major concerns, minor concerns, and what would need to change to accept it.",
         "revision": "Propose the specific revisions that would address the concerns raised.",
         "closing": "Give a recommendation: accept, minor revision, major revision, or reject, with reasons."
-      }
+      },
+      "suited_to": "Evaluating a specific proposal, analysis or piece of reasoning against explicit criteria. Goal is quality assessment rather than winning. Output is accept / revise / reject with reasons."
     },
     {
       "name": "Socratic Dialogue",
@@ -73,7 +78,8 @@
         "response": "Ask a follow-up question that presses on the weakest assumption exposed so far.",
         "reflection": "Name the assumptions the questioning has revealed and which now look untenable.",
         "closing": "Now answer the strongest open questions, citing which question you are answering."
-      }
+      },
+      "suited_to": "Conceptual and definitional questions where the terms themselves are unclear. Goal is precision of language and exposure of hidden assumptions, not an empirical conclusion."
     },
     {
       "name": "Panel Discussion",
@@ -84,7 +90,8 @@
         "opening": "Give your expert perspective on the topic in your own domain's terms.",
         "response": "Respond to a point another panelist made, agreeing or disagreeing with reasons.",
         "closing": "Give your final takeaway for the audience."
-      }
+      },
+      "suited_to": "Broad, multi-dimensional questions where the value is coverage from several expert angles. Goal is a rounded map of the question. The safe default when the question's shape is unclear."
     },
     {
       "name": "Round Table",
@@ -95,7 +102,8 @@
         "opening": "Contribute your opening view on the topic.",
         "response": "Build on or challenge the discussion so far, adding something new.",
         "closing": "Offer your concluding thought."
-      }
+      },
+      "suited_to": "Open exploratory questions with no leading candidate and no adversarial edge. Goal is generating the space of considerations before anything is decided."
     },
     {
       "name": "Town Hall",
@@ -106,7 +114,8 @@
         "opening": "Voice your stakeholder group's central concern or hope regarding the topic.",
         "response": "React to another stakeholder's concern: where do your interests align or conflict?",
         "closing": "State what outcome would best serve the people you represent."
-      }
+      },
+      "suited_to": "Questions whose difficulty is distributional -- who bears the cost, who benefits. Values as much as facts. Goal is surfacing stakeholder positions, not reconciling them."
     },
     {
       "name": "Devil's Advocate",
@@ -118,7 +127,8 @@
         "response": "Attack the strongest standing claim as hard as you honestly can, then defend your own.",
         "revision": "Repair your position against the attacks that landed, or abandon it if it cannot be repaired.",
         "closing": "State what survived the adversarial process."
-      }
+      },
+      "suited_to": "A position that has become consensus too easily and needs stress-testing. Goal is finding what breaks it. Output is a list of surviving objections, not a verdict."
     },
     {
       "name": "Fishbowl",
@@ -130,7 +140,8 @@
         "response": "Respond to the inner-circle exchange, advancing the conversation.",
         "reflection": "As an observer stepping in, reflect on what the inner circle missed.",
         "closing": "Summarize the fishbowl's collective insight."
-      }
+      },
+      "suited_to": "Questions where a small focused exchange is more productive than everyone speaking, and the observers' later commentary adds a second layer. Goal is depth then perspective."
     },
     {
       "name": "Consensus Workshop",
@@ -142,7 +153,8 @@
         "response": "Identify which requirements are compatible and where the real tensions lie.",
         "revision": "Propose a synthesis that satisfies as many must-haves as possible.",
         "closing": "State whether you can endorse the emerging synthesis and any reservation you hold."
-      }
+      },
+      "suited_to": "Genuinely contested NORMATIVE questions where factual disagreement masks value disagreement. Goal is an honest map of which values conflict, not false factual convergence."
     },
     {
       "name": "Policy Hearing",
@@ -154,7 +166,8 @@
         "response": "Question the previous testimony on feasibility, cost, or unintended consequences.",
         "revision": "Recommend amendments that would improve the proposal.",
         "closing": "State your final recommendation to the committee."
-      }
+      },
+      "suited_to": "A concrete proposal that will be adopted or not. Mixed facts and values. Goal is practical: feasibility, cost, unintended consequences, amendments. Output is a recommendation."
     },
     {
       "name": "Six Thinking Hats",
@@ -163,25 +176,38 @@
       "min_agents": 2,
       "independent_first_round": true,
       "phase_sequence": [
-        { "name": "White hat -- facts",
-          "instruction": "EVERYONE wears the WHITE hat this round; set your usual stance aside entirely -- for this round you are not arguing a position. State only what is known: facts, figures, sources, and precisely where the information is missing. Distinguish verified fact from assumption from guess. Ask no rhetorical questions and draw no conclusions." },
-        { "name": "Yellow hat -- benefits",
-          "instruction": "EVERYONE wears the YELLOW hat this round. Set your usual stance aside. Look only for value: what could go right, who gains, under what conditions the best case is realistic, and why an optimistic reading might be the correct one. Do not balance this with objections -- the Black hat round handles those." },
-        { "name": "Black hat -- cautions",
-          "instruction": "EVERYONE wears the BLACK hat this round. Set your usual stance aside. Look only for what could fail: risks, weak assumptions, unintended consequences, who is harmed, and the conditions under which this goes badly. Be specific and material -- caution is not pessimism, so name the mechanism of failure, not a mood." },
-        { "name": "Red hat -- intuition",
-          "instruction": "EVERYONE wears the RED hat this round. Set your usual stance aside -- this round alone, nobody is required to be rigorous, cite anything, or stay in character. State your gut reaction, hunch or unease in a few sentences and do NOT justify it: no evidence, no reasoning, no hedging. The point is to surface the feeling the analysis has been suppressing, so it is on the record where it can be examined." },
-        { "name": "Green hat -- new ideas",
-          "instruction": "EVERYONE wears the GREEN hat this round. Set your usual stance aside, and set aside whether ideas are realistic. Generate alternatives, reframings and possibilities nobody has raised: a different way to pose the question, an option outside the choices assumed so far, a provocation worth exploring. Quantity and novelty over defensibility." },
-        { "name": "Blue hat -- process and conclusion",
-          "instruction": "EVERYONE wears the BLUE hat this round. Step outside the content and review the thinking itself: which hat produced the most, which was thin, what the panel now actually knows versus assumes, and what remains unresolved. Close with the most defensible summary the six rounds support -- and say plainly if they do not support one." }
+        {
+          "name": "White hat -- facts",
+          "instruction": "EVERYONE wears the WHITE hat this round; set your usual stance aside entirely -- for this round you are not arguing a position. State only what is known: facts, figures, sources, and precisely where the information is missing. Distinguish verified fact from assumption from guess. Ask no rhetorical questions and draw no conclusions."
+        },
+        {
+          "name": "Yellow hat -- benefits",
+          "instruction": "EVERYONE wears the YELLOW hat this round. Set your usual stance aside. Look only for value: what could go right, who gains, under what conditions the best case is realistic, and why an optimistic reading might be the correct one. Do not balance this with objections -- the Black hat round handles those."
+        },
+        {
+          "name": "Black hat -- cautions",
+          "instruction": "EVERYONE wears the BLACK hat this round. Set your usual stance aside. Look only for what could fail: risks, weak assumptions, unintended consequences, who is harmed, and the conditions under which this goes badly. Be specific and material -- caution is not pessimism, so name the mechanism of failure, not a mood."
+        },
+        {
+          "name": "Red hat -- intuition",
+          "instruction": "EVERYONE wears the RED hat this round. Set your usual stance aside -- this round alone, nobody is required to be rigorous, cite anything, or stay in character. State your gut reaction, hunch or unease in a few sentences and do NOT justify it: no evidence, no reasoning, no hedging. The point is to surface the feeling the analysis has been suppressing, so it is on the record where it can be examined."
+        },
+        {
+          "name": "Green hat -- new ideas",
+          "instruction": "EVERYONE wears the GREEN hat this round. Set your usual stance aside, and set aside whether ideas are realistic. Generate alternatives, reframings and possibilities nobody has raised: a different way to pose the question, an option outside the choices assumed so far, a provocation worth exploring. Quantity and novelty over defensibility."
+        },
+        {
+          "name": "Blue hat -- process and conclusion",
+          "instruction": "EVERYONE wears the BLUE hat this round. Step outside the content and review the thinking itself: which hat produced the most, which was thin, what the panel now actually knows versus assumes, and what remains unresolved. Close with the most defensible summary the six rounds support -- and say plainly if they do not support one."
+        }
       ],
       "phases": {
         "opening": "State only what is known: facts, figures and where information is missing. No positions.",
         "response": "Take the perspective this round calls for -- benefits, cautions, intuition or new ideas -- setting your usual stance aside.",
         "revision": "Generate alternatives and reframings nobody has raised yet.",
         "closing": "Review the thinking itself and give the most defensible summary the discussion supports."
-      }
+      },
+      "suited_to": "Decisions needing deliberate coverage of facts, upside, risk, intuition and alternatives without argument. Goal is complete parallel coverage rather than resolution. Best with agents carrying no strong stance."
     },
     {
       "name": "Narrative Forge",
@@ -189,29 +215,46 @@
       "recommended_moderator": "Facilitator",
       "min_agents": 3,
       "phase_sequence": [
-        { "name": "Human problem",
-          "instruction": "Do not tell stories yet. Articulate the HUMAN PROBLEM beneath the topic: what pain, need, fear, or conflict a narrative would have to address, who feels it, and why existing stories fail them." },
-        { "name": "Competing moral frames",
-          "instruction": "Advance ONE moral frame for the problem -- a view of what is at stake, who owes what to whom, and what a good resolution would honour -- and contrast it explicitly with a frame another participant has advanced or could advance. Do not write the myth yet." },
-        { "name": "Candidate myths",
-          "instruction": "Produce or contribute to a CANDIDATE MYTH that embodies one of the moral frames on the table: characters, setting, central conflict, symbolic objects, and the arc's key beats. Per your role, either draft narrative or specify what the draft must contain." },
-        { "name": "Adversarial critique",
-          "instruction": "Attack the candidate myths per your role: propaganda potential, extremist appropriation, out-group creation, glorified obedience or violence, appropriated traditions, psychological mechanisms that misfire, structural weaknesses. Name the specific passage or element you are attacking." },
-        { "name": "Revision",
-          "instruction": "Revise the candidate myths against the critique: state which objections you accept and how the story changes, which you reject and why. The revision must be concrete -- changed characters, altered beats, new imagery -- not a promise to change." },
-        { "name": "Human testing",
-          "instruction": "Simulate reception: pick two distinct audiences (age, culture, disposition) and narrate honestly how each hears the current myth -- what resonates, what misfires, what is misread, where attention drops. Ground each reaction in a specific emotional mechanism." },
-        { "name": "Cultural mutation",
-          "instruction": "Project the myth's drift: how retellings would mutate it over years of transmission -- simplifications, appropriations, inversions, merchandising, schisms. Identify which mutations are benign, which are dangerous, and which parts of the story invite them." },
-        { "name": "Further revision",
-          "instruction": "Deliver the hardened final candidate: revise the myth against the observed mutations and misreadings, state what was changed and why, and name plainly the risks and disagreements that remain unresolved." }
+        {
+          "name": "Human problem",
+          "instruction": "Do not tell stories yet. Articulate the HUMAN PROBLEM beneath the topic: what pain, need, fear, or conflict a narrative would have to address, who feels it, and why existing stories fail them."
+        },
+        {
+          "name": "Competing moral frames",
+          "instruction": "Advance ONE moral frame for the problem -- a view of what is at stake, who owes what to whom, and what a good resolution would honour -- and contrast it explicitly with a frame another participant has advanced or could advance. Do not write the myth yet."
+        },
+        {
+          "name": "Candidate myths",
+          "instruction": "Produce or contribute to a CANDIDATE MYTH that embodies one of the moral frames on the table: characters, setting, central conflict, symbolic objects, and the arc's key beats. Per your role, either draft narrative or specify what the draft must contain."
+        },
+        {
+          "name": "Adversarial critique",
+          "instruction": "Attack the candidate myths per your role: propaganda potential, extremist appropriation, out-group creation, glorified obedience or violence, appropriated traditions, psychological mechanisms that misfire, structural weaknesses. Name the specific passage or element you are attacking."
+        },
+        {
+          "name": "Revision",
+          "instruction": "Revise the candidate myths against the critique: state which objections you accept and how the story changes, which you reject and why. The revision must be concrete -- changed characters, altered beats, new imagery -- not a promise to change."
+        },
+        {
+          "name": "Human testing",
+          "instruction": "Simulate reception: pick two distinct audiences (age, culture, disposition) and narrate honestly how each hears the current myth -- what resonates, what misfires, what is misread, where attention drops. Ground each reaction in a specific emotional mechanism."
+        },
+        {
+          "name": "Cultural mutation",
+          "instruction": "Project the myth's drift: how retellings would mutate it over years of transmission -- simplifications, appropriations, inversions, merchandising, schisms. Identify which mutations are benign, which are dangerous, and which parts of the story invite them."
+        },
+        {
+          "name": "Further revision",
+          "instruction": "Deliver the hardened final candidate: revise the myth against the observed mutations and misreadings, state what was changed and why, and name plainly the risks and disagreements that remain unresolved."
+        }
       ],
       "phases": {
         "opening": "Articulate the human problem beneath the topic that a narrative would have to address.",
         "response": "Advance the myth-engineering work per your role: frames, candidate narrative, critique, or revision.",
         "revision": "Revise the candidate myths against the strongest critique raised so far.",
         "closing": "Deliver the final candidate myth, with remaining risks and disagreements stated plainly."
-      }
+      },
+      "suited_to": "Not an analytical question at all: building a story, myth or narrative for a human problem. Goal is a durable candidate narrative that survives critique, audience testing and cultural drift."
     },
     {
       "name": "Adversarial Scrutiny",
@@ -225,7 +268,8 @@
         "cross_examination": "Name the single specific claim on which you and another participant are furthest apart. Ask them one pointed question about it, state explicitly what evidence would change your own view, and say whether that evidence exists.",
         "revision": "Concede any point that genuine argument or audited evidence has won against you; restate your position with those revisions incorporated, and flag what remains unresolved.",
         "closing": "State your final position: which of your claims survived scrutiny, which you modified or abandoned, and what remains genuinely uncertain. Do not introduce new arguments."
-      }
+      },
+      "suited_to": "A specific leading claim that must survive structured attack. Factual, with a candidate answer already on the table. Goal is resolution through failure-surface coverage: which claims survived, which fell."
     }
   ]
 }

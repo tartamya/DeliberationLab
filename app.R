@@ -160,6 +160,9 @@ ui <- page_navbar(
     h5("Run settings"),
     selectInput("mode", "Debate mode", choices = vocab_choices(CONFIG$debate_modes),
                 selected = "Panel Discussion"),
+    # What the selected mode is FOR -- the dropdown otherwise offers 16 bare
+    # names and no way to choose between them without reading the config.
+    uiOutput("mode_help"),
     selectInput("moderator", "Moderator", choices = vocab_choices(CONFIG$moderators),
                 selected = "Neutral"),
     selectInput("objective", "Objective", choices = vocab_choices(CONFIG$objectives),
@@ -815,6 +818,10 @@ server <- function(input, output, session) {
       out$plan$narrative <- nf
       out$plan$recommended_mode <- "Narrative Forge"
       out$plan$recommended_moderator <- "Facilitator"
+      # Overriding the mode invalidates whatever rationale the planner gave for
+      # its own choice, so replace it rather than leave a stale explanation.
+      out$plan$mode_rationale <- paste("Fixed by the narrative target you set: the myth-engineering",
+                                       "loop only operates in this mode.")
     }
     rv$plan <- out$plan
     rv$plan_msg <- out$error
@@ -822,6 +829,14 @@ server <- function(input, output, session) {
     if (is.null(out$error) && !is.null(out$provider) && !identical(out$provider, input$meta_provider))
       log_event("WARN", paste0("Planner failed over from '", input$meta_provider, "' to '", out$provider, "'."))
     log_usage("planner", out$provider %||% input$meta_provider, out$model, out$usage, out$cached)
+  })
+
+  # What the currently selected debate mode is suited to, under the picker.
+  output$mode_help <- renderUI({
+    m <- cfg_find(cfg$debate_modes, input$mode)
+    txt <- m$suited_to %||% m$description %||% ""
+    if (!nzchar(txt)) return(NULL)
+    tags$p(class = "text-muted", style = "font-size:0.85em; margin:-6px 0 10px 0;", txt)
   })
 
   output$planner_msg <- renderUI({
@@ -864,6 +879,10 @@ server <- function(input, output, session) {
       info_card("Debate questions", tags$ul(lapply(unlist(p$debate_questions), tags$li))),
       layout_columns(col_widths = c(6, 6),
         info_card("Recommended", tags$p(tags$b("Mode: "), p$recommended_mode),
+                  # Why that mode. Without it a considered choice is
+                  # indistinguishable from a fallback default.
+                  if (nzchar(p$mode_rationale %||% ""))
+                    tags$p(class = "text-muted", em(p$mode_rationale)) else NULL,
                   tags$p(tags$b("Moderator: "), p$recommended_moderator)),
         info_card("Evidence required", tags$ul(lapply(unlist(p$required_evidence), tags$li)))),
       layout_columns(col_widths = c(6, 6),

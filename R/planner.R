@@ -55,6 +55,8 @@
     debate_questions = as_chr_list(parsed$debate_questions),
     recommended_mode = "Adversarial Scrutiny",
     recommended_moderator = "Neutral",
+    mode_rationale = paste("Fixed by the five-role panel: the four seated roles are the",
+                           "Adversarial Scrutiny protocol, so the mode is not a free choice here."),
     expected_agreements = as_chr_list(parsed$expected_agreements),
     expected_controversies = as_chr_list(parsed$expected_controversies),
     required_evidence = as_chr_list(parsed$required_evidence),
@@ -75,6 +77,8 @@ planner_heuristic_five_role <- function(topic, cfg) {
   base$experts <- experts
   base$recommended_mode <- "Adversarial Scrutiny"
   base$recommended_moderator <- "Neutral"
+  base$mode_rationale <- paste("Fixed by the five-role panel, not chosen: the seated roles are",
+                               "the Adversarial Scrutiny protocol.")
   base$recommended_num_agents <- length(experts)
   base$panel <- "five_role"
   base
@@ -105,6 +109,9 @@ planner_heuristic_five_role <- function(topic, cfg) {
     debate_questions = as_chr_list(parsed$debate_questions),
     recommended_mode = as.character(parsed$recommended_mode %||% "Round Table"),
     recommended_moderator = as.character(parsed$recommended_moderator %||% "Neutral"),
+    # Why that mode, in the planner's own words. Empty when the model omitted it
+    # (or when the mode came from a default rather than a choice).
+    mode_rationale = as.character(parsed$mode_rationale %||% ""),
     expected_agreements = as_chr_list(parsed$expected_agreements),
     expected_controversies = as_chr_list(parsed$expected_controversies),
     required_evidence = as_chr_list(parsed$required_evidence),
@@ -144,6 +151,8 @@ planner_heuristic <- function(topic, cfg, n_agents_hint = NULL) {
     dimensions = dims, experts = experts,
     debate_questions = lapply(chosen, function(d) (d$questions %||% list("What matters most here?"))[[1]]),
     recommended_mode = "Panel Discussion", recommended_moderator = "Neutral",
+    mode_rationale = paste("Heuristic fallback, not a considered choice: Panel Discussion is the",
+                           "safe default when the question's shape has not been assessed."),
     expected_agreements = list("The topic is consequential and multi-dimensional."),
     expected_controversies = list("How to weigh competing dimensions against each other."),
     required_evidence = unique(unlist(lapply(pick, function(r) r$evidence))),

@@ -347,7 +347,9 @@ plan_html <- function(plan) {
     card("Experts", experts),
     card("Debate questions", ul(plan$debate_questions)),
     card("Recommended", htmltools::tags$p(htmltools::tags$b("Mode: "), plan$recommended_mode %||% "",
-                                          htmltools::tags$b("   Moderator: "), plan$recommended_moderator %||% "")),
+                                          htmltools::tags$b("   Moderator: "), plan$recommended_moderator %||% ""),
+         if (nzchar(plan$mode_rationale %||% ""))
+           htmltools::tags$p(htmltools::tags$em(plan$mode_rationale)) else NULL),
     card("Expected agreements", ul(plan$expected_agreements)),
     card("Expected controversies", ul(plan$expected_controversies)),
     card("Evidence required", ul(plan$required_evidence))
@@ -377,7 +379,9 @@ plan_to_text <- function(plan, topic = "") {
     "\n## Dimensions\n", dims,
     "\n\n## Experts\n", experts,
     "\n\n## Debate questions\n", b(plan$debate_questions),
-    "\n\n## Recommended\n  Mode: ", plan$recommended_mode %||% "", "\n  Moderator: ", plan$recommended_moderator %||% "",
+    "\n\n## Recommended\n  Mode: ", plan$recommended_mode %||% "",
+    if (nzchar(plan$mode_rationale %||% "")) paste0("\n    (", plan$mode_rationale, ")") else "",
+    "\n  Moderator: ", plan$recommended_moderator %||% "",
     "\n\n## Expected agreements\n", b(plan$expected_agreements),
     "\n\n## Expected controversies\n", b(plan$expected_controversies),
     "\n\n## Evidence required\n", b(plan$required_evidence), "\n")
