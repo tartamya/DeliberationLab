@@ -330,22 +330,8 @@ ui <- page_navbar(
           sliderInput("ag_skepticism", "Skepticism", 0, 1, 0.5),
           sliderInput("ag_risk", "Risk tolerance", 0, 1, 0.5),
           sliderInput("ag_confidence", "Starting confidence", 0, 1, 0.5),
-          textAreaInput("ag_prompt", "Custom instructions (optional)", rows = 2),
-          hr(),
-          checkboxInput("ag_apply_rules", "Apply critical rules to this participant", value = TRUE),
-          conditionalPanel("input.ag_apply_rules == true",
-            # Seeded with the shipped ruleset so the box is never blank on load;
-            # selecting a participant replaces it with what that agent receives.
-            textAreaInput("ag_rules", "Rules for this participant", rows = 6, width = "100%",
-                          value = CONFIG$critical_rules %||% ""),
-            actionButton("ag_rules_reset", "↺ Use the Planner tab's rules",
-                         class = "btn-sm btn-outline-secondary")),
-          helpText("Starts from the Planner tab's ruleset. Edit to override it for this ",
-                   "participant only; leave it matching the Planner text to keep inheriting ",
-                   "future changes. Unticked, this participant debates with no rules at all."),
-          br(),
-          actionButton("ag_add", "Add Agent", class = "btn-success"),
-          helpText("Select a row to edit it (button becomes Save). Click it again to deselect.")
+          helpText("Select a row in the roster to edit it. Instructions and rules for the ",
+                   "selected participant are below the roster; Save is there too.")
         )
       ),
       card(
@@ -371,6 +357,31 @@ ui <- page_navbar(
                    "(saves expertise/reasoning/evidence/communication/bias, any role constraints, and the dials as presets; ",
                    "goal and prompt stay per-agent).")
         )
+      )
+    ),
+    # Full width, directly under the roster: these are long free-text fields that
+    # were unusable squeezed into the 4-wide editor column. Save lives here too,
+    # so it is the last control in the top-to-bottom flow.
+    card(
+      card_header("Instructions & rules for the selected participant"),
+      card_body(
+        fillable = FALSE,
+        textAreaInput("ag_prompt", "Custom instructions (optional)", rows = 3, width = "100%"),
+        checkboxInput("ag_apply_rules", "Apply critical rules to this participant", value = TRUE),
+        conditionalPanel("input.ag_apply_rules == true",
+          # Seeded with the shipped ruleset so the box is never blank on load;
+          # selecting a participant replaces it with what that agent receives.
+          textAreaInput("ag_rules", "Rules for this participant", rows = 8, width = "100%",
+                        value = CONFIG$critical_rules %||% ""),
+          actionButton("ag_rules_reset", "↺ Use the Planner tab's rules",
+                       class = "btn-sm btn-outline-secondary")),
+        helpText("Starts from the Planner tab's ruleset. Edit to override it for this ",
+                 "participant only; leave it matching the Planner text to keep inheriting ",
+                 "future changes. Unticked, this participant debates with no rules at all."),
+        hr(),
+        actionButton("ag_add", "Add Agent", class = "btn-success"),
+        helpText("Adds a new participant, or saves the one selected in the roster ",
+                 "(the button label changes). Click a selected row again to deselect.")
       )
     ),
     card(
