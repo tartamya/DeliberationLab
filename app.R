@@ -262,8 +262,12 @@ ui <- page_navbar(
                      "To engineer narratives/myths: pick the 'Narrative Forge' debate mode on the ",
                      "Debate Setup tab -- a narrative/myth type selector then appears here.")),
           tags$label(class = "control-label", "Apply critical rules"),
-          checkboxInput("apply_rules_debate", "During deliberation (every agent turn)", value = TRUE),
+          # Not "every agent turn" any more: a participant with its own ruleset
+          # keeps it whatever this says, and one with rules unticked gets none.
+          checkboxInput("apply_rules_debate", "During deliberation (default for participants)", value = TRUE),
           checkboxInput("apply_rules_consensus", "At consensus (final verdict)", value = TRUE),
+          helpText("The deliberation setting is the default. On the Participants tab each ",
+                   "participant can override this ruleset or opt out of rules entirely."),
           textAreaInput("critical_rules", "Critical rules (the ruleset applied above)",
                         value = CONFIG$critical_rules %||% "", rows = 10, width = "100%",
                         placeholder = paste("Epistemic ground rules injected into every turn as",
@@ -355,7 +359,7 @@ ui <- page_navbar(
           helpText("Shuffle roster replaces all participants with a fresh random set on the active providers. ",
                    "Save to library adds the selected agent's role to config/roles.json so it's reusable in future sessions ",
                    "(saves expertise/reasoning/evidence/communication/bias, any role constraints, and the dials as presets; ",
-                   "goal and prompt stay per-agent).")
+                   "goal, custom instructions and per-participant rules stay per-agent).")
         )
       )
     ),
@@ -1398,6 +1402,19 @@ server <- function(input, output, session) {
   observeEvent(input$ag_rules_reset, {
     updateTextAreaInput(session, "ag_rules", value = input$critical_rules %||% "")
   })
+
+  # The box tracks the Planner ruleset until the user actually edits it. Without
+  # this, editing the Planner rules while a participant is loaded leaves the box
+  # holding the OLD text -- and saving then stores it as a frozen override of a
+  # ruleset that no longer exists, silently. Only refresh a box that still holds
+  # exactly what we last put there; a real edit is left alone.
+  last_global_rules <- reactiveVal(CONFIG$critical_rules %||% "")
+  observeEvent(input$critical_rules, {
+    cur <- input$critical_rules %||% ""
+    if (identical(trimws(input$ag_rules %||% ""), trimws(last_global_rules())))
+      updateTextAreaInput(session, "ag_rules", value = cur)
+    last_global_rules(cur)
+  }, ignoreInit = TRUE)
 
   # Save the selected agent's role into config/roles.json so it becomes a
   # reusable, pickable role in future sessions (and this one's role picker).
