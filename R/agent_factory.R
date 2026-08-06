@@ -41,8 +41,51 @@ new_agent <- function(cfg, name, role = "", category = "", expertise = "",
 # Build an agent from a named role in roles.json, applying the role's
 # defaults. `overrides` is a named list that wins over the role defaults
 # (used by the planner, which may specify reasoning/evidence explicitly).
+# ---- Built-in roles ----------------------------------------------------------
+# The four roles the five-role adversarial-scrutiny panel seats BY NAME. They are
+# app machinery, not library content: without them that panel silently degrades
+# to generic agents stripped of the constraints that define it, and the panel is
+# the default. Keeping definitions here means curating (or wiping) roles.json can
+# never break it. The library still wins on a name match, so a user who wants a
+# different Steelman just defines one -- these are a floor, not a lock.
+.BUILTIN_ROLES <- list(
+  "Proponent / Causal Advocate" = list(
+    name = "Proponent / Causal Advocate", category = "Epistemic",
+    expertise = "building the strongest causal case for the proposition, mechanism and pathway construction",
+    reasoning = "First Principles", evidence = "Mechanistic Research",
+    communication = "Structured", bias = "Advocates for the proposition",
+    constraints = "Do not pretend uncertainties are resolved. State plainly which links in your causal chain are established and which are assumed or contested; overstating a weak link forfeits your case.",
+    creativity = 0.6, skepticism = 0.3, risk_tolerance = 0.6),
+  "Skeptic / Falsifier" = list(
+    name = "Skeptic / Falsifier", category = "Epistemic",
+    expertise = "falsification, failure modes, disconfirming evidence",
+    reasoning = "Skeptic", evidence = "Meta-analysis",
+    communication = "Blunt", bias = "Doubt-first",
+    constraints = "Do not merely offer an alternative opinion. Every objection must name a specific way the proposition could be FALSE and state what observation or result would demonstrate that.",
+    creativity = 0.4, skepticism = 0.9, risk_tolerance = 0.3),
+  "Steelman" = list(
+    name = "Steelman", category = "Epistemic",
+    expertise = "reconstructing the strongest version of positions under attack, testing the fairness of critique",
+    reasoning = "First Principles", evidence = "Expert Consensus",
+    communication = "Structured", bias = "Charitable interpretation",
+    constraints = "Do not simply defend the original position, and do not join the critics. Your object is the critique itself: test whether each objection engages the argument's strongest form; where it attacks a weaker version, restate the strongest version and require the objection to meet it.",
+    creativity = 0.5, skepticism = 0.6, risk_tolerance = 0.4),
+  "Empirical Evidence Auditor" = list(
+    name = "Empirical Evidence Auditor", category = "Epistemic",
+    expertise = "locating studies and data that directly test the claimed links",
+    reasoning = "Evidence Maximizer", evidence = "Systematic Reviews",
+    communication = "Structured", bias = "Demands direct evidence",
+    constraints = "Do not infer evidence from plausibility. If no study directly tests a link, say so explicitly and record it as an evidence gap rather than substituting a related or analogous finding. Form your audit from the claims and citations alone: do not adopt, weigh, or be swayed by any participant's stated conclusion or confidence.",
+    history_view = "claims_digest", digest_rounds = 2,
+    creativity = 0.3, skepticism = 0.7, risk_tolerance = 0.3))
+
+# Is this role name supplied by the app rather than the user's library?
+is_builtin_role <- function(name) !is.null(.BUILTIN_ROLES[[as.character(name %||% "")]])
+
 agent_from_role <- function(cfg, role_name, provider = NULL, overrides = list()) {
-  r <- cfg_find(cfg$roles, role_name)
+  # Library first (so a user definition overrides), then the built-in floor,
+  # then the bare fallback for a role the planner invented.
+  r <- cfg_find(cfg$roles, role_name) %||% .BUILTIN_ROLES[[as.character(role_name)]]
   base <- if (is.null(r)) {
     # Planner invented a role not in config -- still build a usable agent.
     list(name = role_name, category = "Custom", expertise = role_name,

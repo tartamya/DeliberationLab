@@ -1155,11 +1155,12 @@ server <- function(input, output, session) {
         tagList(tags$p(sprintf("Removing %d role%s:", length(names), if (length(names) == 1) "" else "s")),
                 tags$ul(lapply(names, tags$li))),
       if (length(needed))
-        tags$p(class = "text-danger",
-               tags$b("Warning: "), "the five-role panel seats ",
-               paste(needed, collapse = ", "),
-               " by name. Deleting these leaves that panel building generic agents ",
-               "without their constraints.") else NULL,
+        tags$p(class = "text-muted",
+               tags$b("Note: "), paste(needed, collapse = ", "),
+               if (length(needed) == 1) " is" else " are",
+               " seated by name by the five-role panel. Deleting from the library is safe -- ",
+               "the panel falls back to the built-in definition, so it keeps its constraints. ",
+               "Your edits to these roles would be lost, though.") else NULL,
       tags$p(class = "text-muted",
              "config/roles.json is backed up beside itself first. Seated agents are unaffected."),
       footer = tagList(
