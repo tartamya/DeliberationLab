@@ -12,21 +12,10 @@
 # tracking brace depth and string state to return the FIRST complete balanced
 # {...} object. Robust to trailing text and braces inside string values --
 # ported verbatim (it earned its keep) from the CIRL app.
-extract_json_block <- function(txt) {
-  txt <- gsub("```json|```", "", txt)
-  chars <- strsplit(txt, "", fixed = TRUE)[[1]]
-  # Match whichever container opens FIRST. Scanning only for "{" truncates a
-  # top-level ARRAY to its first object -- which silently turned a 5-role reply
-  # into 1 role, since the other meta calls all request an object and never hit
-  # this path.
-  ob <- which(chars == "{")[1]
-  ab <- which(chars == "[")[1]
-  as_array <- !is.na(ab) && (is.na(ob) || ab < ob)
-  start <- if (as_array) ab else ob
-  if (is.na(start)) return(txt)
-  open  <- if (as_array) "[" else "{"
-  close <- if (as_array) "]" else "}"
-  depth <- 0L; in_string <- FALSE; escape_next <- FALSE; end <- NA_integer_
+# Bracket-matched span starting at `start`, or NA if it never closes.
+.json_span_at <- function(chars, start, open, close) {
+  if (is.na(start) || start > length(chars)) return(NA_character_)
+  depth <- 0L; in_string <- FALSE; escape_next <- FALSE
   for (i in seq(start, length(chars))) {
     ch <- chars[i]
     if (in_string) {
@@ -36,11 +25,49 @@ extract_json_block <- function(txt) {
     } else {
       if (ch == '"') in_string <- TRUE
       else if (ch == open) depth <- depth + 1L
-      else if (ch == close) { depth <- depth - 1L; if (depth == 0L) { end <- i; break } }
+      else if (ch == close) {
+        depth <- depth - 1L
+        if (depth == 0L) return(paste(chars[start:i], collapse = ""))
+      }
     }
   }
-  if (is.na(end)) return(txt) # unbalanced/truncated -- let fromJSON error honestly
-  substr(txt, start, end)
+  NA_character_   # never closed
+}
+
+extract_json_block <- function(txt) {
+  txt <- gsub("```json|```", "", txt)
+  chars <- strsplit(txt, "", fixed = TRUE)[[1]]
+  obs <- which(chars == "{"); ars <- which(chars == "[")
+  if (length(obs) == 0 && length(ars) == 0) return(txt)
+
+  # A reply may be an object OR an array, and either may be preceded by prose
+  # containing brackets -- a citation marker "[1]", a note "[draft]". Anchoring
+  # on whichever bracket appears first is wrong in BOTH directions: it truncates
+  # a top-level array to its first object, and it grabs "[1]" in front of a
+  # perfectly good object (which parses, so the caller silently receives an
+  # object with none of its keys -- a plan of pure defaults).
+  #
+  # Truncation guard first: if the container that opens the reply never closes,
+  # the payload was cut off. Fail rather than salvage a complete-looking
+  # fragment from inside it, so llm_json's retry gets its chance.
+  first <- min(c(obs, ars))
+  fo <- if (length(obs) > 0 && first == obs[1]) c("{", "}") else c("[", "]")
+  if (is.na(.json_span_at(chars, first, fo[1], fo[2]))) return(txt)
+
+  # Otherwise consider the first few openers of each kind -- a stray marker sits
+  # in the preamble, so the real payload is always among them -- and keep the
+  # longest span that actually parses. The stray is invariably the short one.
+  K <- 6L
+  cands <- c(vapply(utils::head(obs, K), function(s) .json_span_at(chars, s, "{", "}"), character(1)),
+             vapply(utils::head(ars, K), function(s) .json_span_at(chars, s, "[", "]"), character(1)))
+  cands <- unique(cands[!is.na(cands)])
+  if (length(cands) == 0) return(txt)
+  ok <- vapply(cands, function(b)
+    !is.null(tryCatch(jsonlite::fromJSON(b, simplifyVector = FALSE), error = function(e) NULL)),
+    logical(1))
+  if (!any(ok)) return(txt)   # let fromJSON fail honestly
+  cands <- cands[ok]
+  cands[[which.max(nchar(cands))]]
 }
 
 # Parse a model's text into a list via extract_json_block(); NULL on failure.
