@@ -947,6 +947,21 @@ server <- function(input, output, session) {
     rv$loaded_providers <- NULL
   }, ignoreNULL = FALSE)
 
+  # The starter roster (Optimist + Skeptic) exists so the app is usable before
+  # anything is configured. Every add path APPENDS, so those two silently
+  # survived into rosters the user had built -- a roster of "4 experts" was
+  # really 6, and the extras debated. Clear them the first time the user seats
+  # anything of their own. Returns TRUE if it cleared, so callers can say so.
+  clear_seeded_roster <- function() {
+    cur <- rv$agents
+    if (length(cur) == 0 || !all(vapply(cur, function(a) isTRUE(a$seeded), logical(1)))) return(FALSE)
+    log_event("INFO", paste0("Replaced the starter participants (",
+                             paste(vapply(cur, function(a) a$name, character(1)), collapse = ", "),
+                             ") with your own."))
+    rv$agents <- list()
+    TRUE
+  }
+
   # Loading an existing agent into the form also changes ag_role, which re-fires
   # the prefill observer below on the next flush -- after the row observer has
   # written the agent's own values. Left unguarded it overwrites the agent's
@@ -1068,8 +1083,13 @@ server <- function(input, output, session) {
       a$id <- rv$agents[[idx]]$id; rv$agents[[idx]] <- a
       showNotification(paste("Saved:", a$name), type = "message")
     } else {
+      # First participant of the user's own replaces the starter pair.
+      cleared <- clear_seeded_roster()
       a$name <- unique_agent_name(a$name, rv$agents)
-      rv$agents <- c(rv$agents, list(a)); showNotification(paste("Added:", a$name), type = "message")
+      rv$agents <- c(rv$agents, list(a))
+      showNotification(paste0("Added: ", a$name,
+                              if (cleared) " (replaced the starter participants)" else ""),
+                       type = "message")
     }
     editing_idx(NULL); updateActionButton(session, "ag_add", label = "Add Agent")
     selectRows(agents_proxy, NULL); reset_agent_form()
@@ -1183,6 +1203,8 @@ server <- function(input, output, session) {
     provs <- input$active_providers
     if (length(provs) == 0) provs <- provider_ids(cfg)
     if (length(provs) == 0) { showNotification("No active providers to assign.", type = "error"); return() }
+    # First participants of the user's own replace the starter pair.
+    cleared <- clear_seeded_roster()
     added <- character(0)
     for (i in seq_along(sel)) {
       r <- lib[[sel[i]]]
@@ -1196,7 +1218,9 @@ server <- function(input, output, session) {
     selectRows(library_proxy, NULL)
     showNotification(paste0("Added ", length(added), " participant",
                             if (length(added) != 1) "s" else "", ": ",
-                            paste(added, collapse = ", ")), type = "message")
+                            paste(added, collapse = ", "),
+                            if (cleared) " (replaced the starter participants)" else ""),
+                     type = "message")
   })
 
   # Load one library role into the editor on the left so it can be adjusted

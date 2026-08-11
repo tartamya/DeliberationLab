@@ -205,10 +205,12 @@ default_agents <- function(cfg, providers = NULL) {
   provs <- providers %||% provider_ids(cfg)
   if (length(provs) == 0) provs <- provider_ids(cfg)
   p1 <- provs[1]; p2 <- if (length(provs) > 1) provs[2] else provs[1]
-  list(
-    agent_from_role(cfg, "Optimist", provider = p1),
-    agent_from_role(cfg, "Skeptic",  provider = p2)
-  )
+  # Marked `seeded`: these exist only so the app is usable before anything is
+  # configured. The moment the user seats a participant of their own they are
+  # replaced, never silently joined to a roster that was actually built.
+  lapply(list(agent_from_role(cfg, "Optimist", provider = p1),
+              agent_from_role(cfg, "Skeptic",  provider = p2)),
+         function(a) { a$seeded <- TRUE; a })
 }
 
 # Build a fresh RANDOM roster: n agents (default 2-5), each a random role with
