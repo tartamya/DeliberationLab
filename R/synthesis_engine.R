@@ -93,27 +93,9 @@ export_json <- function(topic, history, kg, analytics, plan = NULL, consensus = 
   out
 }
 
-# Plain-text render of a deliberation plan (for combining into a text report).
-plan_to_text <- function(plan) {
-  if (is.null(plan)) return("")
-  b <- function(x) { x <- unlist(x); if (length(x) == 0) "  (none)" else paste0("  - ", x, collapse = "\n") }
-  dims <- if (length(plan$dimensions)) paste(vapply(plan$dimensions, function(d)
-    paste0("  - ", d$name %||% "", " (importance ", round(suppressWarnings(as.numeric(d$importance %||% NA)), 2), ")"),
-    character(1)), collapse = "\n") else "  (none)"
-  experts <- if (length(plan$experts)) paste(vapply(plan$experts, function(e)
-    paste0("  - ", e$role %||% "", " [", e$reasoning %||% "", " / ", e$evidence %||% "", "]"),
-    character(1)), collapse = "\n") else "  (none)"
-  paste0(
-    "DELIBERATION PLAN\n",
-    "\n## Dimensions\n", dims,
-    "\n\n## Experts\n", experts,
-    "\n\n## Debate Questions\n", b(plan$debate_questions),
-    "\n\n## Recommended\n  Mode: ", plan$recommended_mode %||% "", "   Moderator: ", plan$recommended_moderator %||% "",
-    "\n\n## Expected Agreements\n", b(plan$expected_agreements),
-    "\n\n## Expected Controversies\n", b(plan$expected_controversies),
-    "\n\n## Evidence Required\n", b(plan$required_evidence), "\n"
-  )
-}
+# (An older plan_to_text lived here and was shadowed by the fuller definition
+# further down -- same name, so the later one always won. Removed: it rendered
+# neither the domain lens, the mode rationale nor the narrative target.)
 
 # Render a consensus object as readable markdown-ish plain text (for the
 # clipboard and the PDF export). If `plan` is supplied it is appended as a
@@ -177,7 +159,7 @@ quality_html <- function(q) {
               q$n_rounds, if (q$n_rounds != 1) "s" else "")))
 }
 
-consensus_to_text <- function(con, topic = "", plan = NULL, quality = NULL) {
+consensus_to_text <- function(con, topic = "", plan = NULL, quality = NULL, plan_inputs = NULL) {
   if (is.null(con)) return("(no consensus generated yet)")
   bullets <- function(x) { x <- unlist(x); if (length(x) == 0) "  (none)" else paste0("  - ", x, collapse = "\n") }
   dm <- con$decision_matrix
@@ -198,7 +180,8 @@ consensus_to_text <- function(con, topic = "", plan = NULL, quality = NULL) {
     "\n\n## Decision Matrix\n", dm_txt, "\n"
   )
   # Combined report: plan FIRST, then the consensus.
-  if (!is.null(plan)) paste0(plan_to_text(plan), "\n", strrep("=", 60), "\n\n", consensus_body) else consensus_body
+  if (!is.null(plan)) paste0(plan_to_text(plan, topic, plan_inputs), "\n", strrep("=", 60),
+                             "\n\n", consensus_body) else consensus_body
 }
 
 # Dependency-free PDF: render wrapped monospaced text across A4 pages using the
@@ -317,9 +300,32 @@ text_to_pdf <- function(text, file, title = NULL, subtitle = NULL) {
 }
 
 # HTML section for a deliberation plan (used when combining plan + consensus).
-plan_html <- function(plan) {
+# `inputs` carries what the USER supplied -- topic, background, ruleset and the
+# design choices -- which lives in Shiny inputs rather than in the plan object.
+# Passed rather than stamped onto `plan`, because the plan is saved into every
+# session and embedded in consensus reports, and the background can be long.
+plan_html <- function(plan, inputs = NULL) {
   if (is.null(plan)) return("")
   card <- function(title, ...) htmltools::tags$div(class = "info-card", htmltools::tags$h5(title), ...)
+  # Long free text: keep the author's line breaks rather than reflowing to a blob.
+  para <- function(txt) htmltools::tags$p(style = "white-space:pre-wrap;", txt)
+  field <- function(lbl, val) if (nzchar(val %||% ""))
+    htmltools::tagList(htmltools::tags$p(htmltools::tags$b(lbl)), para(val)) else NULL
+  inputs_card <- if (is.null(inputs)) NULL else {
+    rules_note <- if (nzchar(inputs$rules %||% ""))
+      paste0("Applied during deliberation: ", if (isTRUE(inputs$rules_debate)) "yes" else "no",
+             "  |  at consensus: ", if (isTRUE(inputs$rules_consensus)) "yes" else "no") else ""
+    card("Inputs",
+         field("Debate title", inputs$title),
+         field("Topic", inputs$topic),
+         field("Problem details / background", inputs$details),
+         field("Narrative / myth type", inputs$narrative),
+         if (nzchar(inputs$rules %||% ""))
+           htmltools::tagList(
+             htmltools::tags$p(htmltools::tags$b("Critical rules"),
+                               htmltools::tags$span(class = "text-muted", paste0("  (", rules_note, ")"))),
+             para(inputs$rules)) else NULL)
+  }
   ul <- function(x) { x <- unlist(x)
     if (length(x) == 0) htmltools::tags$p(htmltools::tags$em("(none)"))
     else htmltools::tags$ul(lapply(x, htmltools::tags$li)) }
@@ -341,6 +347,7 @@ plan_html <- function(plan) {
     "   |   Recommended agents: ", plan$recommended_num_agents %||% "?")
   as.character(htmltools::tagList(
     htmltools::tags$h2("Deliberation Plan"),
+    inputs_card,
     card("Design", htmltools::tags$p(design_line),
          if (nzchar(plan$narrative %||% "")) htmltools::tags$p(htmltools::tags$b(plan$narrative)) else NULL,
          if (nzchar(plan$rationale %||% "")) htmltools::tags$p(htmltools::tags$em(plan$rationale)) else NULL),
@@ -359,9 +366,21 @@ plan_html <- function(plan) {
 
 # Plain-text plan rendering: the fallback when the HTML->PDF pipeline (chromote)
 # is unavailable, mirroring the consensus report's text fallback.
-plan_to_text <- function(plan, topic = "") {
+plan_to_text <- function(plan, topic = "", inputs = NULL) {
   if (is.null(plan)) return("No plan yet. Run the Planner first.")
   b <- function(x) { x <- unlist(x); if (length(x) == 0) "  (none)" else paste0("  - ", x, collapse = "\n") }
+  fld <- function(lbl, val) if (nzchar(val %||% "")) paste0("\n", lbl, ":\n", val, "\n") else ""
+  inputs_block <- if (is.null(inputs)) "" else paste0(
+    "\n## Inputs",
+    fld("Debate title", inputs$title),
+    fld("Topic", inputs$topic),
+    fld("Problem details / background", inputs$details),
+    fld("Narrative / myth type", inputs$narrative),
+    if (nzchar(inputs$rules %||% ""))
+      paste0("\nCritical rules (deliberation: ", if (isTRUE(inputs$rules_debate)) "yes" else "no",
+             ", consensus: ", if (isTRUE(inputs$rules_consensus)) "yes" else "no", "):\n",
+             inputs$rules, "\n") else "",
+    "\n")
   experts <- paste(vapply(plan$experts %||% list(), function(e) paste0(
     "  - ", e$name %||% e$role %||% "",
     if (nzchar(e$expertise %||% "")) paste0(" [lens: ", e$expertise, "]") else "",
@@ -373,6 +392,7 @@ plan_to_text <- function(plan, topic = "") {
   paste0(
     "DELIBERATION PLAN\n",
     if (nzchar(topic)) paste0("Topic: ", topic, "\n") else "",
+    inputs_block,
     "Panel: ", if (identical(plan$panel %||% "", "five_role")) "five-role adversarial scrutiny" else "free choice",
     " | Source: ", plan$source %||% "?", " | Recommended agents: ", plan$recommended_num_agents %||% "?", "\n",
     if (nzchar(plan$narrative %||% "")) paste0(plan$narrative, "\n") else "",
@@ -454,7 +474,7 @@ debate_html <- function(topic, history, meta = NULL, moderator = FALSE) {
 # Full HTML document for the consensus report (mirrors consensus_view). `meta`
 # = coordinator line under the heading; `plan` (optional) appends the plan.
 consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL, quality = NULL,
-                           synthesiser = FALSE) {
+                           synthesiser = FALSE, plan_inputs = NULL) {
   if (is.null(con)) return(.html_doc(paste0("Consensus: ", topic), "<p>No consensus generated.</p>", meta = meta))
   card <- function(title, ..., accent = "#2C5F8A")
     htmltools::tags$div(class = "info-card", style = paste0("border-left-color:", accent, ";"),
@@ -496,7 +516,7 @@ consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL, 
   if (!is.null(plan)) {
     # Combined report: plan FIRST, then the consensus, under a broader title.
     .html_doc(paste0("Deliberation Report: ", topic),
-              paste0(plan_html(plan), "<h2>Consensus</h2>", consensus_cards, kg_section), meta = meta)
+              paste0(plan_html(plan, plan_inputs), "<h2>Consensus</h2>", consensus_cards, kg_section), meta = meta)
   } else {
     .html_doc(paste0("Consensus: ", topic), paste0(consensus_cards, kg_section), meta = meta)
   }

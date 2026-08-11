@@ -860,6 +860,18 @@ server <- function(input, output, session) {
     tags$div(class = "text-warning", style = "margin-top:8px;", rv$plan_msg)
   })
 
+  # Everything the USER supplied that shaped the plan. Gathered here rather than
+  # stored on the plan object, which is saved into every session and embedded in
+  # consensus reports -- the background text can be long and would be duplicated.
+  plan_inputs <- function() list(
+    title     = trimws(input$debate_title %||% ""),
+    topic     = trimws(input$topic %||% ""),
+    details   = trimws(input$problem_details %||% ""),
+    narrative = { nf <- narrative_fragment(); if (is.null(nf)) "" else nf },
+    rules     = trimws(input$critical_rules %||% ""),
+    rules_debate    = !identical(input$apply_rules_debate, FALSE),
+    rules_consensus = !identical(input$apply_rules_consensus, FALSE))
+
   # Save the current plan as a PDF (topic in the title, coordinator underneath,
   # same pattern as the consensus report: HTML->PDF with a plain-text fallback).
   output$dl_plan_pdf <- downloadHandler(
@@ -868,10 +880,11 @@ server <- function(input, output, session) {
       ensure_writable(file)
       title <- paste0("Deliberation Plan: ", trimws(input$topic %||% ""))
       meta <- coord_meta()
+      ins <- plan_inputs()
       ok <- if (is.null(rv$plan)) FALSE else
-        tryCatch({ html_to_pdf(.html_doc(title, plan_html(rv$plan), meta = meta), file); TRUE },
+        tryCatch({ html_to_pdf(.html_doc(title, plan_html(rv$plan, ins), meta = meta), file); TRUE },
                  error = function(e) FALSE)
-      if (!ok) text_to_pdf(plan_to_text(rv$plan, input$topic %||% ""), file,
+      if (!ok) text_to_pdf(plan_to_text(rv$plan, input$topic %||% "", ins), file,
                            title = title, subtitle = meta)
     })
 
@@ -2220,7 +2233,8 @@ server <- function(input, output, session) {
   observeEvent(input$copy_consensus, {
     if (is.null(rv$consensus)) { showNotification("No consensus to copy yet.", type = "warning"); return() }
     session$sendCustomMessage("clipboard_copy",
-                              consensus_to_text(rv$consensus, input$topic, plan = consensus_plan(), quality = dq()))
+                              consensus_to_text(rv$consensus, input$topic, plan = consensus_plan(),
+                                                quality = dq(), plan_inputs = plan_inputs()))
     showNotification("Consensus copied to clipboard.", type = "message")
   })
   output$dl_consensus_pdf <- downloadHandler(
@@ -2245,9 +2259,11 @@ server <- function(input, output, session) {
       ok <- if (isTRUE(rv$running)) FALSE else
         tryCatch({ html_to_pdf(consensus_html(input$topic, rv$consensus, meta = meta, plan = plan,
                                               kg_png = kg_png, quality = quality,
-                                              synthesiser = identical(rv$plan$panel %||% "", "five_role")), file); TRUE },
+                                              synthesiser = identical(rv$plan$panel %||% "", "five_role"),
+                                              plan_inputs = if (is.null(plan)) NULL else plan_inputs()), file); TRUE },
                  error = function(e) FALSE)
-      if (!ok) text_to_pdf(consensus_to_text(rv$consensus, input$topic, plan = plan, quality = quality), file,
+      if (!ok) text_to_pdf(consensus_to_text(rv$consensus, input$topic, plan = plan, quality = quality,
+                                             plan_inputs = if (is.null(plan)) NULL else plan_inputs()), file,
                            title = paste("Consensus:", input$topic), subtitle = meta)
       if (!is.null(kg_png)) unlink(kg_png)
     })
