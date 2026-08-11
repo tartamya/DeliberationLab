@@ -732,6 +732,14 @@ server <- function(input, output, session) {
     else log_event("API", msg)
   }
 
+  # Why a meta call was handed on, for the failover log lines. A rate limit, a
+  # timeout and a model that cannot hold JSON all produce the same "failed over"
+  # line without this.
+  failover_reason <- function(res) {
+    f <- res$failovers %||% character(0)
+    if (length(f) == 0) "" else paste0(" Reason -- ", paste(f, collapse="; "))
+  }
+
   log_event <- function(level, msg) {
     entry <- list(time = format(Sys.time(), "%H:%M:%S"), level = level, msg = as.character(msg))
     rv$run_log <- c(rv$run_log, list(entry))
@@ -834,7 +842,8 @@ server <- function(input, output, session) {
     rv$plan_msg <- out$error
     if (!is.null(out$error)) log_event("WARN", paste("Planner:", out$error))
     if (is.null(out$error) && !is.null(out$provider) && !identical(out$provider, input$meta_provider))
-      log_event("WARN", paste0("Planner failed over from '", input$meta_provider, "' to '", out$provider, "'."))
+      log_event("WARN", paste0("Planner failed over from '", input$meta_provider, "' to '",
+                               out$provider, "'.", failover_reason(out)))
     log_usage("planner", out$provider %||% input$meta_provider, out$model, out$usage, out$cached)
   })
 
@@ -1725,6 +1734,27 @@ server <- function(input, output, session) {
       log_event("ERROR", "No agents use an active provider (check each agent's provider vs. the active set).")
       showNotification("No agents use an active provider.", type = "error"); return()
     }
+    # Agents on an unticked provider were dropped here in silence -- the run
+    # simply proceeded with fewer participants than the roster showed. Two ways
+    # in: unticking a provider after building the roster, and "Test keys", which
+    # DESELECTS a provider whose key fails. Say plainly who is not debating.
+    dropped <- Filter(function(a) !(a$provider %in% active_set), rv$agents)
+    if (length(dropped) > 0) {
+      who <- paste(vapply(dropped, function(a) paste0(a$name, " (", a$provider, ")"), character(1)),
+                   collapse = ", ")
+      log_event("WARN", paste0(length(dropped), " of ", length(rv$agents),
+                               " roster participants are NOT debating -- their provider is not ticked in ",
+                               "Active providers: ", who, "."))
+      showNotification(paste0(length(dropped), " participant",
+                              if (length(dropped) == 1) "" else "s",
+                              " excluded (provider not active): ", who),
+                       type = "warning", duration = 10)
+    }
+    # The seated roster, in order, so the transcript can always be reconciled
+    # against what was actually asked to debate.
+    log_event("INFO", paste0("Seated ", length(active_agents), " participant(s): ",
+                             paste(vapply(active_agents, function(a)
+                               paste0(a$name, "/", a$provider), character(1)), collapse = ", "), "."))
     # Fresh run: clear prior state so round numbering and the KG start clean.
     # usage_log is reset too, so the cost meter reflects THIS debate (planner
     # cost from before the run is intentionally not carried in).
@@ -1926,7 +1956,8 @@ server <- function(input, output, session) {
           mod <- moderator_call(cfg, topic, round_texts, r, meta_prov, meta_k, mode_name, moderator_name,
                                 fallbacks = meta_fb)
           if (isTRUE(mod$ok) && !is.null(mod$provider) && !identical(mod$provider, meta_prov))
-            log_event("WARN", paste0("Round ", r, " moderator failed over from '", meta_prov, "' to '", mod$provider, "'."))
+            log_event("WARN", paste0("Round ", r, " moderator failed over from '", meta_prov,
+                                     "' to '", mod$provider, "'.", failover_reason(mod)))
           log_usage("moderator", mod$provider %||% meta_prov, mod$model, mod$usage, mod$cached, round = r)
           if (!isTRUE(mod$ok)) {
             log_event("WARN", paste0("Round ", r, " moderator fell back to heuristic: ", mod$error))
@@ -2104,7 +2135,8 @@ server <- function(input, output, session) {
       showNotification(paste("Consensus failed:", res$error), type = "error")
     } else rv$consensus <- res$data
     if (isTRUE(res$ok) && !is.null(res$provider) && !identical(res$provider, input$meta_provider))
-      log_event("WARN", paste0("Consensus failed over from '", input$meta_provider, "' to '", res$provider, "'."))
+      log_event("WARN", paste0("Consensus failed over from '", input$meta_provider, "' to '",
+                               res$provider, "'.", failover_reason(res)))
     log_usage("consensus", res$provider %||% input$meta_provider, res$model, res$usage, res$cached)
   })
   # Coordinator line shown under the heading of every exported PDF.

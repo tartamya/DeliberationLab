@@ -36,7 +36,8 @@ moderator_call <- function(cfg, topic, round_texts, round_number, provider_id, a
   r <- llm_json(cfg, provider_id, list(list(role = "user", content = prompt)),
                 api_key, max_tokens = 4000, temperature = 0.2, use_cache = use_cache,
                 fallbacks = fallbacks)
-  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider)
+  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider,
+               failovers = r$failovers)   # why any earlier provider was passed over
   if (!isTRUE(r$ok)) {
     return(c(list(ok = FALSE, error = r$error, data = heuristic_round_summary(round_texts)), meta))
   }

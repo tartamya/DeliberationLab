@@ -49,7 +49,8 @@ consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key,
   )
   r <- llm_json(cfg, provider_id, list(list(role = "user", content = prompt)), api_key,
                 max_tokens = 3500, temperature = 0.3, use_cache = use_cache, fallbacks = fallbacks)
-  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider)
+  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider,
+               failovers = r$failovers)   # why any earlier provider was passed over
   if (!isTRUE(r$ok)) return(c(list(ok = FALSE, error = r$error, data = NULL), meta))
   if (is.null(r$parsed))
     return(c(list(ok = FALSE, error = paste0("Consensus returned non-JSON after a retry. Output began: ",

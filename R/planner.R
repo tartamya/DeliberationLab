@@ -180,7 +180,8 @@ run_planner <- function(topic, cfg, provider_id, api_key, n_agents_hint = NULL, 
   # lets a failed/timed-out meta provider hand off to a working one.
   r <- llm_json(cfg, provider_id, msgs, api_key, max_tokens = 4000, temperature = 0.4,
                 use_cache = use_cache, fallbacks = fallbacks)
-  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider)
+  meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider,
+               failovers = r$failovers)   # why any earlier provider was passed over
   if (!isTRUE(r$ok)) {
     return(c(list(ok = TRUE, error = paste("LLM planner failed, used heuristic:", r$error),
                   plan = fallback_plan()), meta))

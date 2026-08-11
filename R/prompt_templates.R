@@ -129,14 +129,22 @@ llm_json <- function(cfg, provider_id, messages, api_key, max_tokens = 4000,
     list(parsed = parsed, ok = TRUE, error = NULL, usage = usage, model = model,
          cached = isTRUE(res$cached), text = res$text, provider = pid)
   }
-  # Primary first, then each fallback; stop at the first PARSED result.
+  # Primary first, then each fallback; stop at the first PARSED result. Why each
+  # earlier provider failed is carried on the result as `failovers`: without it
+  # the caller can log THAT a handoff happened but never why, which turns a
+  # rate limit, a timeout and a model that cannot hold JSON into the same
+  # uninformative line.
   chain <- c(list(list(provider = provider_id, key = api_key)), fallbacks)
-  last <- NULL
+  last <- NULL; fails <- character(0)
   for (att in chain) {
     r <- attempt(att$provider, att$key)
-    if (!is.null(r$parsed)) return(r)   # valid JSON -> success
+    if (!is.null(r$parsed)) { r$failovers <- fails; return(r) }   # valid JSON -> success
+    fails <- c(fails, paste0(att$provider, ": ",
+                             if (!isTRUE(r$ok)) (r$error %||% "unknown error")
+                             else "no parseable JSON after a retry"))
     last <- r
   }
+  last$failovers <- fails
   last                                   # none parsed -> caller uses heuristic
 }
 
