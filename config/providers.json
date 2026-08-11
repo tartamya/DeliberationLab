@@ -63,7 +63,10 @@
         "low",
         "high"
       ],
-      "live_search": { "enabled": false, "mode": "auto" },
+      "live_search": {
+        "enabled": false,
+        "mode": "auto"
+      },
       "_note": "Web search via xAI Live Search is OPT-IN: set live_search.enabled to true to attach `search_parameters` to Grok's requests (mode=auto: the model searches only when it judges a query needs it). Citations, when returned, are appended to the turn as a 'Sources:' list -- same mechanism as Perplexity. DEFAULT OFF because it is unverified against the live xAI API, and because searching shifts a model into a factual-reporting register that can flatten an assigned persona (an Optimist stops arguing the upside and just reports findings). If enabled, note that Live Search bills per SOURCE retrieved (~$0.025/source) on top of tokens and is NOT counted by the app's cost tracker -- the Sources count in the transcript is the visible proxy. A request that fails with search attached is automatically retried without it."
     },
     {
@@ -76,7 +79,7 @@
         "sarvam-30b",
         "sarvam-105b"
       ],
-      "max_tokens": 8192,
+      "max_tokens": 16384,
       "thinking": true,
       "needs_key": true,
       "key_name": "sarvam",
@@ -128,25 +131,6 @@
       ]
     },
     {
-      "id": "deepseek",
-      "label": "DeepSeek",
-      "api_type": "openai_chat",
-      "endpoint": "https://api.deepseek.com/v1/chat/completions",
-      "_note": "OpenAI-compatible. deepseek-chat = V3 (non-reasoning); deepseek-reasoner = R1 (reasoning, burns hidden tokens -> keep Max Tokens high). DeepSeek does NOT accept an OpenAI-style reasoning_effort param, so reasoning_effort_levels is intentionally empty. Key `deepseek` in config/secrets.R or env DEEPSEEK_API_KEY.",
-      "default_model": "deepseek-chat",
-      "models": [
-        "deepseek-chat",
-        "deepseek-reasoner"
-      ],
-      "max_tokens": 8192,
-      "context_window": 65536,
-      "thinking": true,
-      "needs_key": true,
-      "key_name": "deepseek",
-      "key_env": "DEEPSEEK_API_KEY",
-      "reasoning_effort_levels": []
-    },
-    {
       "id": "mistral",
       "label": "Mistral AI",
       "api_type": "openai_chat",
@@ -164,6 +148,25 @@
       "needs_key": true,
       "key_name": "mistral",
       "key_env": "MISTRAL_API_KEY",
+      "reasoning_effort_levels": []
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "api_type": "openai_chat",
+      "endpoint": "https://api.deepseek.com/v1/chat/completions",
+      "_note": "OpenAI-compatible. deepseek-chat = V3 (non-reasoning); deepseek-reasoner = R1 (reasoning, burns hidden tokens -> keep Max Tokens high). DeepSeek does NOT accept an OpenAI-style reasoning_effort param, so reasoning_effort_levels is intentionally empty. Key `deepseek` in config/secrets.R or env DEEPSEEK_API_KEY.",
+      "default_model": "deepseek-reasoner",
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ],
+      "max_tokens": 8192,
+      "context_window": 65536,
+      "thinking": true,
+      "needs_key": true,
+      "key_name": "deepseek",
+      "key_env": "DEEPSEEK_API_KEY",
       "reasoning_effort_levels": []
     },
     {
