@@ -47,7 +47,42 @@ moderator_call <- function(cfg, topic, round_texts, round_number, provider_id, a
                                  json_snippet(r$text)),
                   data = heuristic_round_summary(round_texts)), meta))
   }
-  c(list(ok = TRUE, error = NULL, data = r$parsed), meta)
+  c(list(ok = TRUE, error = NULL, data = canonicalize_extraction(r$parsed)), meta)
+}
+
+# The schema above asks for a Title-case vocabulary, and a dozen places downstream
+# match those strings exactly: node colours, Idea Evolution, the claim ledger handed
+# to the Synthesiser, the windowed claims digest, and the contradiction counts behind
+# the quality scorecard. Models answer "claim" or "contradicts" often enough, and
+# every one of those matches then fails silently -- the claim drops out of the
+# ledger, the edge draws grey instead of red, and the scorecard records zero
+# challenges for a round that was full of them. Canonicalise case at the single
+# point where moderator output enters the app. A value outside the vocabulary is
+# returned untouched, so nothing that works today changes.
+.KG_NODE_TYPES <- c("Idea", "Claim", "Evidence", "Question", "Assumption", "Counterargument")
+.KG_RELATIONS  <- c("Supports", "Contradicts", "DependsOn", "Extends", "Refines", "Rejects")
+
+# Letters-only comparison so "depends on", "depends_on" and "DependsOn" all land
+# on the same canonical token.
+.canon_token <- function(x, vocab) {
+  if (is.null(x) || length(x) != 1 || is.na(x)) return(x)
+  hit <- match(tolower(gsub("[^A-Za-z]", "", as.character(x))), tolower(vocab))
+  if (is.na(hit)) x else vocab[hit]
+}
+
+canonicalize_extraction <- function(data) {
+  if (!is.list(data)) return(data)
+  if (is.list(data$nodes) && length(data$nodes) > 0)
+    data$nodes <- lapply(data$nodes, function(n) {
+      if (is.list(n) && !is.null(n$type)) n$type <- .canon_token(n$type, .KG_NODE_TYPES)
+      n
+    })
+  if (is.list(data$edges) && length(data$edges) > 0)
+    data$edges <- lapply(data$edges, function(e) {
+      if (is.list(e) && !is.null(e$relation)) e$relation <- .canon_token(e$relation, .KG_RELATIONS)
+      e
+    })
+  data
 }
 
 # Pure base-R fallback so a round never fails outright. Synthesizes one Claim
