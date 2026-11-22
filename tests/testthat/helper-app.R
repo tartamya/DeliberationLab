@@ -37,8 +37,8 @@ APP <- app_dir()
 # server use load_app_env() below.
 .MODULES <- c("config_loader.R", "llm_api.R", "prompt_templates.R", "planner.R",
               "agent_factory.R", "moderator.R", "knowledge_graph.R",
-              "debate_engine.R", "synthesis_engine.R", "memory.R",
-              "ui_helpers.R", "reports.R")
+              "debate_engine.R", "synthesis_engine.R", "integrity.R",
+              "memory.R", "ui_helpers.R", "reports.R")
 for (f in .MODULES) {
   p <- file.path(APP, "R", f)
   if (file.exists(p)) sys.source(p, envir = globalenv(), chdir = TRUE)

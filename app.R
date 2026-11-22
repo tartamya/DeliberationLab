@@ -42,7 +42,7 @@ REPORTS_DIR <- file.path(APP_DIR, "reports")
 
 for (f in c("config_loader.R", "llm_api.R", "prompt_templates.R", "planner.R",
             "agent_factory.R", "moderator.R", "knowledge_graph.R", "debate_engine.R",
-            "synthesis_engine.R", "memory.R", "ui_helpers.R", "reports.R")) {
+            "synthesis_engine.R", "integrity.R", "memory.R", "ui_helpers.R", "reports.R")) {
   # local = TRUE sources into THIS (the app's) environment. Under runApp the
   # app body runs in its own env, not globalenv -- so sourcing modules/secrets
   # here (rather than into globalenv with local = FALSE) is what lets
@@ -591,6 +591,7 @@ ui <- page_navbar(
                       "Include the deliberation plan in the consensus report (PDF & clipboard)", value = FALSE),
         checkboxInput("include_kg_consensus",
                       "Append the knowledge graph as a landscape page (PDF only; adds a few seconds)", value = FALSE),
+        uiOutput("run_integrity_card"),
         uiOutput("debate_quality_card"),
         uiOutput("consensus_view")
       )
@@ -2242,6 +2243,17 @@ server <- function(input, output, session) {
   dq <- reactive(if (length(rv$history) == 0) NULL else debate_quality(rv$history, rv$kg))
   # Live card on the Consensus tab (same markup used in the report).
   output$debate_quality_card <- renderUI({ q <- dq(); if (is.null(q)) return(NULL); quality_html(q) })
+  # Did this run do what it was configured to do? Collects the signals that
+  # already exist (actual provider per turn, refused parameters, citation
+  # status, retrieval, vocabulary drift, fallback pricing) into one place --
+  # every one of them used to degrade silently with a normal-looking transcript.
+  ri <- reactive({
+    if (length(rv$history) == 0) return(NULL)
+    run_integrity(rv$history, rv$agents, cfg, rv$kg, rv$consensus, rv$usage_log, rv$plan,
+                  settings = list(mode = input$mode, moderator = input$moderator,
+                                  temperature = input$temperature, max_tokens = input$max_tokens))
+  })
+  output$run_integrity_card <- renderUI(integrity_html(ri()))
 
   observeEvent(input$copy_consensus, {
     if (is.null(rv$consensus)) { showNotification("No consensus to copy yet.", type = "warning"); return() }
