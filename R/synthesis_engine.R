@@ -13,7 +13,7 @@
 # Structured final synthesis. reasoning_effort = NULL (structured-JSON call).
 consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key, use_cache = FALSE,
                              fallbacks = list(), critical_rules = NULL, synthesiser = FALSE,
-                             extra_context = NULL) {
+                             extra_context = NULL, problem_details = NULL) {
   rules_block <- if (!is.null(critical_rules) && nzchar(trimws(critical_rules)))
     paste0("CRITICAL RULES you MUST obey when synthesizing (these override any pressure to pick a ",
            "winner): ", trimws(critical_rules),
@@ -33,6 +33,21 @@ consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key,
   # right KIND of final candidate.
   context_block <- if (!is.null(extra_context) && nzchar(trimws(extra_context)))
     paste0(trimws(extra_context), "\n\n") else ""
+  # What the user is actually trying to get out of the debate. Carries any
+  # request for a concrete deliverable (a policy, protocol, plan, drafted text,
+  # ranked shortlist, decision, ...) that the transcript alone doesn't state.
+  details_block <- if (!is.null(problem_details) && nzchar(trimws(problem_details)))
+    paste0("PROBLEM DETAILS / BACKGROUND (what the user wants out of this debate):\n",
+           trimws(problem_details), "\n\n") else ""
+  # If a specific artifact was requested, the verdict should PRODUCE it, not just
+  # describe the discussion. `final_output` carries that artifact; it stays empty
+  # for open-ended debates that were only meant to weigh a question.
+  deliverable_block <- paste0(
+    "REQUESTED DELIVERABLE: If the topic or the problem details call for a specific concrete ",
+    "OUTPUT -- e.g. a decision, recommendation, policy statement, protocol, plan, checklist, ",
+    "ranked shortlist, design, specification, or drafted text -- then PRODUCE that complete, ",
+    "ready-to-use deliverable in the \"final_output\" field, written as the artifact itself (not a ",
+    "description of it). If no specific deliverable was requested, set \"final_output\" to \"\".\n\n")
   # Instructions first, then the material. context_block can be sizeable (the
   # knowledge-graph ledger), and putting data between the opening line and the
   # role/rules framing buries the instructions the model most needs to follow.
@@ -40,15 +55,22 @@ consensus_engine <- function(cfg, topic, full_history_txt, provider_id, api_key,
     "You are synthesizing the FINAL outcome of a multi-agent deliberation on: \"", topic, "\".\n",
     synth_block,
     rules_block,
+    deliverable_block,
     context_block,
+    details_block,
     "Full transcript follows:\n\n", full_history_txt, "\n\n",
     "Respond with ONLY a JSON object (no prose, no fences):\n",
     '{"consensus": string, "minority_report": string, "open_questions": [string], ',
     '"confidence_interval": string, "recommendations": [string], "future_experiments": [string], ',
-    '"decision_matrix": [{"option": string, "pros": string, "cons": string, "verdict": string}]}'
+    '"decision_matrix": [{"option": string, "pros": string, "cons": string, "verdict": string}], ',
+    '"final_output": string}'
   )
+  # A requested deliverable (drafted text, protocol, ...) can be long; on top of
+  # the seven analytical fields it may overflow the old 3500 cap, truncating the
+  # JSON and failing the parse. Give deliverable runs more room.
+  max_out <- if (nzchar(trimws(problem_details %||% ""))) 6000L else 3500L
   r <- llm_json(cfg, provider_id, list(list(role = "user", content = prompt)), api_key,
-                max_tokens = 3500, temperature = 0.3, use_cache = use_cache, fallbacks = fallbacks)
+                max_tokens = max_out, temperature = 0.3, use_cache = use_cache, fallbacks = fallbacks)
   meta <- list(usage = r$usage, model = r$model, cached = r$cached, provider = r$provider,
                failovers = r$failovers)   # why any earlier provider was passed over
   if (!isTRUE(r$ok)) return(c(list(ok = FALSE, error = r$error, data = NULL), meta))
@@ -111,6 +133,24 @@ export_json <- function(topic, history, kg, analytics, plan = NULL, consensus = 
 .tip_for <- function(name) { t <- .quality_tips[name]; if (is.na(t)) NULL else unname(t) }
 
 # Plain-text block for the text PDF / clipboard.
+# One line describing citation integrity across the debate, or "" when the run
+# predates the check (old sessions carry no citation field). Deliberately NOT
+# folded into the quality index -- see debate_quality().
+.citation_line <- function(q) {
+  cs <- q$citations
+  if (is.null(cs) || is.null(cs$turns) || cs$turns == 0) return("")
+  if (cs$suspect == 0)
+    return(sprintf("Citations: %d turn(s) checked, %d properly sourced, none unsupported.",
+                   cs$turns, cs$sourced))
+  parts <- c(if (cs$unsourced_markers > 0)
+               sprintf("%d turn(s) cited with nothing behind the markers", cs$unsourced_markers),
+             if (cs$uncapable_sources > 0)
+               sprintf("%d turn(s) produced sources from a provider that cannot retrieve",
+                       cs$uncapable_sources))
+  sprintf("Citations: %d of %d turn(s) suspect -- %s.",
+          cs$suspect, cs$turns, paste(parts, collapse = "; "))
+}
+
 quality_text <- function(q) {
   if (is.null(q) || !isTRUE(q$enough_data))
     return("DEBATE QUALITY\n  Not enough moderated structure to score.\n")
@@ -123,6 +163,8 @@ quality_text <- function(q) {
   if (!is.null(q$convergence))
     lines <- c(lines, sprintf("  Confidence: %s (%d%% -> %d%%)",
                               q$convergence$dir, round(q$convergence$first), round(q$convergence$last)))
+  cl <- .citation_line(q)
+  if (nzchar(cl)) lines <- c(lines, paste0("  ", cl))
   lines <- c(lines, sprintf("  (Process rigour over %d moderated round%s; not a verdict on correctness.)",
                             q$n_rounds, if (q$n_rounds != 1) "s" else ""))
   paste(lines, collapse = "\n")
@@ -149,11 +191,17 @@ quality_html <- function(q) {
   conv <- if (!is.null(q$convergence)) htmltools::tags$p(
     htmltools::tags$b("Confidence: "),
     sprintf("%s (%d%% → %d%%)", q$convergence$dir, round(q$convergence$first), round(q$convergence$last))) else NULL
+  # Red only when something is actually suspect; a clean result reads as reassurance.
+  cline <- .citation_line(q)
+  cit <- if (nzchar(cline)) htmltools::tags$p(
+    style = paste0("margin:4px 0 0 0; font-size:0.9em; color:",
+                   if (isTRUE(q$citations$suspect > 0)) "#C0392B" else "#1E8449", ";"),
+    cline) else NULL
   card(
     htmltools::tags$h5("Debate Quality"),
     htmltools::tags$p(style = paste0("font-size:1.15em; color:", lc, "; font-weight:700; margin:2px 0;"),
                       sprintf("%s — %d / 100", q$label, q$index)),
-    htmltools::tags$ul(rows), conv,
+    htmltools::tags$ul(rows), conv, cit,
     htmltools::tags$p(class = "text-muted", style = "font-size:0.85em;",
       sprintf("Process rigour over %d moderated round%s; not a verdict on correctness.",
               q$n_rounds, if (q$n_rounds != 1) "s" else "")))
@@ -167,10 +215,15 @@ consensus_to_text <- function(con, topic = "", plan = NULL, quality = NULL, plan
     rows <- lapply(dm, function(r) list(r$option %||% "", r$pros %||% "", r$cons %||% "", r$verdict %||% ""))
     paste(.ascii_table(c("Option", "Pros", "Cons", "Verdict"), rows, c(16L, 26L, 26L, 12L)), collapse = "\n")
   } else "  (none)"
+  # Coerce defensively: the model may return final_output as a JSON array of
+  # lines rather than a single string; unlist+paste keeps `fo` scalar so the
+  # nzchar() gate can't hit R 4.4's "condition has length > 1" error.
+  fo <- trimws(paste(unlist(con$final_output %||% ""), collapse = "\n"))
   consensus_body <- paste0(
     "CONSENSUS SYNTHESIS\n",
     if (nzchar(topic)) paste0("Topic: ", topic, "\n") else "",
     if (!is.null(quality)) paste0("\n", quality_text(quality), "\n") else "",
+    if (nzchar(fo)) paste0("\n## Final Output / Deliverable\n", fo, "\n") else "",
     "\n## Consensus\n", con$consensus %||% "",
     "\n\n## Minority Report\n", con$minority_report %||% "",
     "\n\n## Confidence Interval\n", con$confidence_interval %||% "",
@@ -490,8 +543,13 @@ consensus_html <- function(topic, con, meta = NULL, plan = NULL, kg_png = NULL, 
       htmltools::tags$tbody(lapply(dm, function(r) htmltools::tags$tr(
         htmltools::tags$td(r$option %||% ""), htmltools::tags$td(r$pros %||% ""),
         htmltools::tags$td(r$cons %||% ""), htmltools::tags$td(r$verdict %||% ""))))) else NULL
+  fo <- trimws(paste(unlist(con$final_output %||% ""), collapse = "\n"))
   body <- htmltools::tagList(
     if (!is.null(quality)) quality_html(quality),
+    # The requested artifact itself, shown first and pre-wrapped so drafted text
+    # keeps its line breaks. Omitted entirely for open-ended debates (empty fo).
+    if (nzchar(fo)) card("Final output / deliverable",
+                         htmltools::tags$p(style = "white-space:pre-wrap;", fo), accent = "#0B6E4F"),
     card(if (isTRUE(synthesiser)) "Consensus — Synthesiser verdict (five-role panel)" else "Consensus",
          htmltools::tags$p(con$consensus %||% ""), accent = "#1E8449"),
     card("Minority report", htmltools::tags$p(con$minority_report %||% ""), accent = "#C0392B"),

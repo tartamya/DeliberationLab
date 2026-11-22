@@ -191,6 +191,9 @@ kg_structure_text <- function(kg, max_claims = 40) {
 
 # Compact one-line KG summary for injection into agent prompts.
 kg_summary_text <- function(kg, n = 8) {
-  if (nrow(kg$nodes) == 0) return("(empty)")
+  # Guard NULL / malformed kg the way debate_quality() and kg_to_png() already do:
+  # nrow(NULL$nodes) is length-zero, so the bare check errored instead of
+  # returning "(empty)".
+  if (is.null(kg) || !is.data.frame(kg$nodes) || nrow(kg$nodes) == 0) return("(empty)")
   paste(utils::tail(kg$nodes$label, n), collapse = "; ")
 }

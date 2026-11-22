@@ -36,10 +36,13 @@ options(shiny.launch.browser = TRUE)
 APP_DIR    <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) getwd())
 if (!dir.exists(file.path(APP_DIR, "R"))) APP_DIR <- getwd()
 CONFIG_DIR <- file.path(APP_DIR, "config")
+# Root for saved report bundles (#2/#3). Fixed under the app folder so every
+# debate's artifacts land in one predictable place.
+REPORTS_DIR <- file.path(APP_DIR, "reports")
 
 for (f in c("config_loader.R", "llm_api.R", "prompt_templates.R", "planner.R",
             "agent_factory.R", "moderator.R", "knowledge_graph.R", "debate_engine.R",
-            "synthesis_engine.R", "memory.R", "ui_helpers.R")) {
+            "synthesis_engine.R", "memory.R", "ui_helpers.R", "reports.R")) {
   # local = TRUE sources into THIS (the app's) environment. Under runApp the
   # app body runs in its own env, not globalenv -- so sourcing modules/secrets
   # here (rather than into globalenv with local = FALSE) is what lets
@@ -88,7 +91,12 @@ available_providers <- function(cfg, ui_keys = list()) {
 }
 
 REASONING_EFFORT_LEVELS <- c("minimal", "low", "medium", "high")
-THINKING_MIN_TOKENS <- 1000
+# Minimum output budget below which a thinking-mode provider is likely to spend
+# the whole allowance on hidden reasoning and return an EMPTY turn. Raised from
+# 1000 to 2600 on 2026-11-20: in the 29 Aug run deepseek-reasoner, gpt-5.5 and
+# sarvam-105b each burned ~2500 reasoning tokens at a 2500 budget and returned
+# nothing, and at 1000 the guard warned about none of them.
+THINKING_MIN_TOKENS <- 2600
 
 # Providers enabled by default: those with a usable key, EXCLUDING `local`
 # (needs_key = FALSE, but points at a localhost server that may not be
@@ -175,7 +183,7 @@ ui <- page_navbar(
     selectInput("objective", "Objective", choices = vocab_choices(CONFIG$objectives),
                 selected = "Truth Seeking"),
     sliderInput("n_rounds", "Rounds", min = 1, max = 20, value = 3),
-    sliderInput("max_tokens", "Max tokens", min = 256, max = 4096, value = 2560, step = 256),
+    sliderInput("max_tokens", "Max tokens", min = 256, max = 8192, value = 2560, step = 256),
     uiOutput("token_warning"),
     sliderInput("temperature", "Temperature", min = 0, max = 1, value = 0.7, step = 0.05),
     sliderInput("reasoning_effort_idx", "Reasoning effort", min = 1,
@@ -414,14 +422,12 @@ ui <- page_navbar(
       card_body(
         fillable = FALSE,
         p(class = "text-muted",
-          "Every role in roles.json. Tick one or more and add them straight to the roster, ",
-          "or load a single one into the editor on the left to adjust it before adding. ",
+          "Every role in roles.json. Click a participant to seat it on the roster AND open it ",
+          "in the editor on the left -- your changes save back to that seated agent. ",
           "Search and filter with the boxes under the headers."),
         DTOutput("library_table"),
         br(),
         div(
-          actionButton("lib_add", "➕ Add selected to roster", class = "btn-success btn-sm"),
-          actionButton("lib_load", "✎ Load into editor", class = "btn-sm btn-primary"),
           actionButton("lib_delete_selected", "🗑 Delete selected", class = "btn-sm btn-danger"),
           actionButton("lib_delete_all", "Delete all roles", class = "btn-sm btn-outline-danger"),
           span(class = "text-muted", style = "margin-left:8px;",
@@ -610,7 +616,13 @@ ui <- page_navbar(
         hr(),
         h6("Raw downloads"),
         downloadButton("dl_txt", "TXT"), downloadButton("dl_md", "Markdown"),
-        downloadButton("dl_json", "JSON"), downloadButton("dl_csv", "CSV"))),
+        downloadButton("dl_json", "JSON"), downloadButton("dl_csv", "CSV"),
+        hr(),
+        h6("Save full report bundle"),
+        helpText("Writes transcript, consensus, plan, data and a reloadable copy",
+                 "into one dated folder under reports/, and logs it in reports/index.csv."),
+        actionButton("btn_save_reports", "Save all reports to disk",
+                     class = "btn-success", icon = icon("folder-open")))),
       card(card_header("Preview"), card_body(verbatimTextOutput("export_preview")))
     )
   ),
@@ -1031,37 +1043,40 @@ server <- function(input, output, session) {
       updateSliderInput(session, s, value = 0.5)
   }
 
+  # Load a seated roster agent (by index) into the editor in "Save Changes"
+  # mode. Shared by roster-row selection AND by seating from the library, so
+  # both paths edit the agent in place rather than adding a duplicate.
+  edit_roster_agent <- function(idx) {
+    a <- rv$agents[[idx]]
+    editing_idx(idx)
+    updateTextInput(session, "ag_name", value = a$name)
+    role_sel <- if (a$role %in% cfg_names(role_lib())) a$role else "Custom"
+    # Keep the agent's own values, not the role defaults -- but only park the
+    # skip if the dropdown will actually change (no change = no event = the
+    # parked skip would go stale and swallow the next genuine selection).
+    if (!identical(input$ag_role, role_sel)) skip_role_prefill(role_sel)
+    updateSelectInput(session, "ag_role", selected = role_sel)
+    updateTextInput(session, "ag_expertise", value = a$expertise)
+    if (a$reasoning %in% cfg_names(cfg$reasoning_styles)) updateSelectInput(session, "ag_reasoning", selected = a$reasoning)
+    if (a$evidence %in% cfg_names(cfg$evidence_types)) updateSelectInput(session, "ag_evidence", selected = a$evidence)
+    updateSelectInput(session, "ag_provider", choices = union(input$active_providers, a$provider), selected = a$provider)
+    updateTextAreaInput(session, "ag_goal", value = a$goal)
+    updateSliderInput(session, "ag_creativity", value = a$creativity)
+    updateSliderInput(session, "ag_skepticism", value = a$skepticism)
+    updateSliderInput(session, "ag_risk", value = a$risk_tolerance)
+    updateSliderInput(session, "ag_confidence", value = a$confidence)
+    updateTextAreaInput(session, "ag_prompt", value = a$prompt)
+    # Show this participant's own rules; an agent that inherits shows the
+    # Planner text, so the box always displays what the agent will receive.
+    updateCheckboxInput(session, "ag_apply_rules", value = isTRUE(a$apply_rules %||% TRUE))
+    updateTextAreaInput(session, "ag_rules",
+                        value = if (nzchar(a$rules %||% "")) a$rules else (input$critical_rules %||% ""))
+    updateActionButton(session, "ag_add", label = "Save Changes")
+  }
   observeEvent(input$agents_table_rows_selected, {
     sel <- input$agents_table_rows_selected
-    if (length(sel) == 1 && sel <= length(rv$agents)) {
-      a <- rv$agents[[sel]]
-      editing_idx(sel)
-      updateTextInput(session, "ag_name", value = a$name)
-      role_sel <- if (a$role %in% cfg_names(role_lib())) a$role else "Custom"
-      # Keep the agent's own values, not the role defaults -- but only park the
-      # skip if the dropdown will actually change (no change = no event = the
-      # parked skip would go stale and swallow the next genuine selection).
-      if (!identical(input$ag_role, role_sel)) skip_role_prefill(role_sel)
-      updateSelectInput(session, "ag_role", selected = role_sel)
-      updateTextInput(session, "ag_expertise", value = a$expertise)
-      if (a$reasoning %in% cfg_names(cfg$reasoning_styles)) updateSelectInput(session, "ag_reasoning", selected = a$reasoning)
-      if (a$evidence %in% cfg_names(cfg$evidence_types)) updateSelectInput(session, "ag_evidence", selected = a$evidence)
-      updateSelectInput(session, "ag_provider", choices = union(input$active_providers, a$provider), selected = a$provider)
-      updateTextAreaInput(session, "ag_goal", value = a$goal)
-      updateSliderInput(session, "ag_creativity", value = a$creativity)
-      updateSliderInput(session, "ag_skepticism", value = a$skepticism)
-      updateSliderInput(session, "ag_risk", value = a$risk_tolerance)
-      updateSliderInput(session, "ag_confidence", value = a$confidence)
-      updateTextAreaInput(session, "ag_prompt", value = a$prompt)
-      # Show this participant's own rules; an agent that inherits shows the
-      # Planner text, so the box always displays what the agent will receive.
-      updateCheckboxInput(session, "ag_apply_rules", value = isTRUE(a$apply_rules %||% TRUE))
-      updateTextAreaInput(session, "ag_rules",
-                          value = if (nzchar(a$rules %||% "")) a$rules else (input$critical_rules %||% ""))
-      updateActionButton(session, "ag_add", label = "Save Changes")
-    } else {
-      editing_idx(NULL); updateActionButton(session, "ag_add", label = "Add Agent")
-    }
+    if (length(sel) == 1 && sel <= length(rv$agents)) edit_roster_agent(sel)
+    else { editing_idx(NULL); updateActionButton(session, "ag_add", label = "Add Agent") }
   }, ignoreNULL = FALSE)
 
   observeEvent(input$ag_add, {
@@ -1195,7 +1210,7 @@ server <- function(input, output, session) {
   })
 
   output$library_table <- renderDT({
-    datatable(library_df(), rownames = FALSE, selection = "multiple", filter = "top",
+    datatable(library_df(), rownames = FALSE, selection = "single", filter = "top",
               options = list(pageLength = 8, lengthMenu = c(5, 8, 15, 30), dom = "ltip",
                              columnDefs = list(list(width = "46px", targets = 3),
                                                list(width = "70px", targets = 4))))
@@ -1205,71 +1220,35 @@ server <- function(input, output, session) {
   # selection; keep a proxy so handlers can deselect deliberately.
   library_proxy <- dataTableProxy("library_table")
 
-  # Seat every ticked library role directly on the roster.
-  observeEvent(input$lib_add, {
+  # Selecting ONE participant in the library seats it on the roster AND opens it
+  # in the editor for modification (edit_roster_agent puts the form in "Save
+  # Changes" mode, so tweaks save back to this seated agent in place). The table
+  # is single-selection, so each click seats exactly one. The library selection
+  # is intentionally NOT cleared, so the Delete-selected button still has a
+  # target -- note that selecting a role to delete it also seats a copy on the
+  # roster, which you can remove if unwanted.
+  observeEvent(input$library_table_rows_selected, {
+    sel <- input$library_table_rows_selected
+    if (length(sel) != 1) return()
     if (isTRUE(rv$running)) {
       showNotification("Stop the running deliberation before changing the roster.", type = "warning"); return()
     }
-    sel <- input$library_table_rows_selected
-    lib <- role_lib()
-    if (length(sel) == 0) { showNotification("Tick one or more roles in the library first.", type = "warning"); return() }
     provs <- input$active_providers
     if (length(provs) == 0) provs <- provider_ids(cfg)
     if (length(provs) == 0) { showNotification("No active providers to assign.", type = "error"); return() }
-    # First participants of the user's own replace the starter pair.
-    cleared <- clear_seeded_roster()
-    added <- character(0)
-    for (i in seq_along(sel)) {
-      r <- lib[[sel[i]]]
-      # Providers are dealt round-robin so a multi-role add spreads across them
-      # rather than stacking every new agent on one provider.
-      a <- agent_from_role_record(cfg, r, provider = provs[[((i - 1) %% length(provs)) + 1]])
-      a$name <- unique_agent_name(r$name %||% "Agent", rv$agents)
-      rv$agents <- c(rv$agents, list(a))
-      added <- c(added, a$name)
-    }
-    selectRows(library_proxy, NULL)
-    showNotification(paste0("Added ", length(added), " participant",
-                            if (length(added) != 1) "s" else "", ": ",
-                            paste(added, collapse = ", "),
-                            if (cleared) " (replaced the starter participants)" else ""),
-                     type = "message")
-  })
-
-  # Load one library role into the editor on the left so it can be adjusted
-  # before being added. Deliberately leaves the roster untouched.
-  observeEvent(input$lib_load, {
-    sel <- input$library_table_rows_selected
-    if (length(sel) != 1) { showNotification("Tick exactly one role to load into the editor.", type = "warning"); return() }
     r <- role_lib()[[sel]]
-    # Drop any roster row selection first, or "Add Agent" would still be in
-    # Save-Changes mode and overwrite the selected agent instead of adding.
-    editing_idx(NULL); selectRows(agents_proxy, NULL)
-    updateActionButton(session, "ag_add", label = "Add Agent")
-    nm <- r$name %||% "New Agent"
-    role_sel <- if (nm %in% cfg_names(role_lib())) nm else "Custom"
-    # We set the fields ourselves; don't let the prefill observer race us. Park
-    # the skip ONLY if the dropdown will actually change -- updating a select to
-    # its current value fires no event, so an unconditional park would go stale
-    # and swallow the user's next genuine selection of this role.
-    if (!identical(input$ag_role, role_sel)) skip_role_prefill(role_sel)
-    updateSelectInput(session, "ag_role", selected = role_sel)
-    updateTextInput(session, "ag_name", value = unique_agent_name(nm, rv$agents))
-    updateTextInput(session, "ag_expertise", value = r$expertise %||% "")
-    if ((r$reasoning %||% "") %in% cfg_names(cfg$reasoning_styles))
-      updateSelectInput(session, "ag_reasoning", selected = r$reasoning)
-    if ((r$evidence %||% "") %in% cfg_names(cfg$evidence_types))
-      updateSelectInput(session, "ag_evidence", selected = r$evidence)
-    for (d in list(c("ag_creativity", "creativity"), c("ag_skepticism", "skepticism"),
-                   c("ag_risk", "risk_tolerance"))) {
-      v <- suppressWarnings(as.numeric(r[[d[2]]] %||% NA))
-      updateSliderInput(session, d[1], value = if (is.na(v)) 0.5 else v)
-    }
-    updateTextAreaInput(session, "ag_goal", value = "")
-    updateTextAreaInput(session, "ag_prompt", value = "")
-    showNotification(paste0("Loaded '", nm, "' into the editor -- adjust it, then click Add Agent."),
+    cleared <- clear_seeded_roster()   # the user's first own pick replaces the starter pair
+    a <- agent_from_role_record(cfg, r, provider = provs[[1]])
+    a$name <- unique_agent_name(r$name %||% "Agent", rv$agents)
+    rv$agents <- c(rv$agents, list(a))
+    idx <- length(rv$agents)
+    edit_roster_agent(idx)             # load into the editor in Save-Changes mode
+    selectRows(agents_proxy, idx)      # reflect the seated agent as the selected roster row
+    showNotification(paste0("Seated '", a$name, "' on the roster",
+                            if (cleared) " (replaced the starter participants)" else "",
+                            " -- adjust it on the left; changes save to the roster."),
                      type = "message")
-  })
+  }, ignoreNULL = TRUE)
 
   # ---- Delete roles from the library ---------------------------------------
   # Both paths stage the names, show what will go, and only write on confirm.
@@ -1740,6 +1719,14 @@ server <- function(input, output, session) {
     }
     rv$run_log <- list()   # fresh diagnostics log for this run attempt
     log_event("INFO", paste0("Run deliberation clicked (", source, ")."))
+    # A deliberation REQUIRES a topic. The planner guards this, but a panel can
+    # be built and run without planning, so validate here too -- before any
+    # side effects (gc / Ollama unload / building agents).
+    if (!nzchar(trimws(input$topic %||% ""))) {
+      log_event("ERROR", "No debate topic entered -- run aborted.")
+      showNotification("Enter a debate topic before running a deliberation.", type = "error")
+      return()
+    }
     # ---- Free memory before a (potentially heavy) run -----------------------
     # Reclaim R's own heap and, when caching is off, drop the response cache
     # (which can hold every prior reply's full text). NOTE: gc() frees only
@@ -1980,6 +1967,23 @@ server <- function(input, output, session) {
             # user's chosen providers (and retries a recovered provider). The
             # actual provider used each turn is recorded in the transcript/log.
             active_agents[[i]] <<- a
+            # Citation integrity: label the turn before it is stored. Purely
+            # textual and free. A model that cannot retrieve has no legitimate
+            # way to produce a URL or a Sources block, and citation markers with
+            # nothing behind them read as more authoritative than plain
+            # assertions -- both are flagged, never rewritten, so the agent's
+            # words remain the record and the flag stays auditable beside them.
+            turn$citation <- citation_integrity(turn$text,
+                                                provider_web_capable(cfg, turn$provider))
+            cw <- citation_warning(turn$citation, turn$agent, r, turn$provider)
+            if (nzchar(cw)) log_event("WARN", cw)
+            # Say when the provider refused a parameter. gpt-5.x/6.x accept only
+            # temperature = 1, so the handler drops the setting and retries; without
+            # this line the run looks as though it honoured the slider.
+            if (length(turn$dropped))
+              log_event("WARN", paste0("Round ", r, " ", turn$agent, " (", turn$provider,
+                        "): provider refused ", paste(turn$dropped, collapse = ", "),
+                        " -- retried without it."))
             rv$history <- c(rv$history, list(turn))
             rv$agents <- update_agent_memory(rv$agents, turn)
             round_texts[[a$name]] <- turn$text
@@ -2160,6 +2164,9 @@ server <- function(input, output, session) {
                               fallbacks = meta_fallbacks(input$meta_provider),
                               critical_rules = if (!identical(input$apply_rules_consensus, FALSE)) input$critical_rules else NULL,
                               synthesiser = identical(rv$plan$panel %||% "", "five_role"),
+                              # Lets the verdict detect and PRODUCE a concrete deliverable
+                              # when the user asked for one (shown in its own box + the PDF).
+                              problem_details = input$problem_details,
                               # The transcript alone hides the argument structure the
                               # moderator already extracted; hand the graph over as a
                               # claim ledger so the verdict can cite what survived.
@@ -2194,6 +2201,12 @@ server <- function(input, output, session) {
   # A blank title drops that segment.
   out_filename <- function(prefix, ext) {
     t <- clean_title()
+    # Fall back to the topic so a download always carries an identifier even when
+    # no explicit debate title was set (keeps download names descriptive -- #1).
+    if (!nzchar(t)) {
+      t <- gsub("[^A-Za-z0-9_-]+", "_", trimws(input$topic %||% ""))
+      t <- substr(gsub("^_+|_+$", "", gsub("_+", "_", t)), 1, 60)
+    }
     paste0(prefix, if (nzchar(t)) paste0("_", t) else "", "_",
            format(Sys.time(), "%Y-%m-%d_%H-%M"), ".", ext)
   }
@@ -2278,7 +2291,12 @@ server <- function(input, output, session) {
           tags$td(row$option %||% ""), tags$td(row$pros %||% ""),
           tags$td(row$cons %||% ""), tags$td(row$verdict %||% "")))))
     } else NULL
+    fo <- trimws(paste(unlist(con$final_output %||% ""), collapse = "\n"))
     tags$div(
+      # Shown only when the debate was asked to produce a specific artifact; the
+      # deliverable itself, pre-wrapped to keep any line breaks in drafted text.
+      if (nzchar(fo)) info_card("Final output / deliverable",
+                                tags$div(style = "white-space:pre-wrap;", fo), accent = "#0B6E4F"),
       info_card("Consensus", tags$p(con$consensus %||% ""), accent = "#1E8449"),
       info_card("Minority report", tags$p(con$minority_report %||% ""), accent = "#C0392B"),
       info_card("Confidence interval", tags$p(con$confidence_interval %||% "")),
@@ -2453,6 +2471,116 @@ server <- function(input, output, session) {
   })
 
   # Shared save routine (used by the Home button and the Debate Setup copy).
+  # The full, reloadable debate state -- shared by "Save debate" (-> sessions/)
+  # and the report bundle's debate.rds, so both capture identical content.
+  session_state <- function() {
+    models <- setNames(lapply(provider_ids(cfg), function(id) input[[paste0("model_", id)]]),
+                       provider_ids(cfg))
+    list(
+      # ---- results ----
+      topic = input$topic, problem_details = input$problem_details,
+      critical_rules = input$critical_rules,
+      apply_rules_debate = input$apply_rules_debate, apply_rules_consensus = input$apply_rules_consensus,
+      plan = rv$plan, agents = rv$agents, history = rv$history,
+      kg = rv$kg, analytics = rv$analytics, consensus = rv$consensus,
+      usage_log = rv$usage_log, formatted_output = rv$formatted_output,
+      # ---- full configuration ----
+      config = list(
+        active_providers = input$active_providers, meta_provider = input$meta_provider,
+        mode = input$mode, moderator = input$moderator, objective = input$objective,
+        n_rounds = input$n_rounds, max_tokens = input$max_tokens, temperature = input$temperature,
+        reasoning_effort_idx = input$reasoning_effort_idx, language = input$language,
+        auto_stop = input$auto_stop, use_cache = input$use_cache,
+        active_dimensions = input$active_dimensions, models = models,
+        coordinator = input$coordinator, include_plan_in_consensus = input$include_plan_in_consensus,
+        include_moderator_in_transcript = input$include_moderator_in_transcript,
+        narrative_type = input$narrative_type, narrative_type_custom = input$narrative_type_custom,
+        panel_design = input$panel_design, debate_title = input$debate_title
+      )
+    )
+  }
+
+  # #2/#3: write the FULL report BUNDLE for the current debate into its own
+  # dated folder under reports/, and append a row to reports/index.csv. Every
+  # artifact is best-effort (a failure on one file never aborts the rest).
+  do_save_reports <- function() {
+    if (length(rv$history) == 0) {
+      showNotification("Run a deliberation before saving reports.", type = "warning"); return()
+    }
+    topic <- input$topic %||% ""
+    meta  <- tryCatch(coord_meta(), error = function(e) "")
+    folder <- tryCatch(new_report_bundle_dir(REPORTS_DIR, topic),
+                       error = function(e) NULL)
+    if (is.null(folder)) {
+      showNotification("Could not create the reports folder.", type = "error"); return()
+    }
+    files <- character(0)
+    put <- function(name, expr) {
+      ok <- tryCatch({ force(expr); TRUE }, error = function(e) {
+        log_event("WARN", paste0("Report '", name, "' skipped: ", conditionMessage(e))); FALSE })
+      if (ok) files <<- c(files, name)
+    }
+    fp <- function(name) file.path(folder, name)
+
+    # -- transcript (md / txt / pdf) --
+    put("transcript.md",  writeLines(paste0(export_markdown(topic, rv$history), mod_comments()), fp("transcript.md")))
+    put("transcript.txt", writeLines(paste0(export_txt(rv$history), mod_comments()), fp("transcript.txt")))
+    put("transcript.pdf", {
+      # Skip headless-Chrome (chromote) while a run is in progress -- it can
+      # collide with the live render; fall back to the base-R text PDF. Mirrors
+      # the download handlers.
+      ok <- if (isTRUE(rv$running)) FALSE else
+        tryCatch({ html_to_pdf(debate_html(topic, rv$history, meta = meta, moderator = incl_mod()), fp("transcript.pdf")); TRUE },
+                 error = function(e) FALSE)
+      if (!ok) {
+        body_txt <- export_txt(rv$history)
+        if (incl_mod()) body_txt <- paste0(body_txt, "\n\f\n", moderator_comments_text(rv$history))
+        text_to_pdf(body_txt, fp("transcript.pdf"), title = paste("Deliberation:", topic), subtitle = meta)
+      }
+    })
+    # -- data --
+    put("debate-data.json", writeLines(as.character(export_json(topic, rv$history, rv$kg, rv$analytics, rv$plan, rv$consensus)), fp("debate-data.json")))
+    put("analytics.csv",    utils::write.csv(export_csv_history(rv$history), fp("analytics.csv"), row.names = FALSE))
+    # -- plan (if present) --
+    if (!is.null(rv$plan))
+      put("plan.txt", writeLines(plan_to_text(rv$plan, topic), fp("plan.txt")))
+    # -- consensus (if present) --
+    if (!is.null(rv$consensus)) {
+      cp <- tryCatch(consensus_plan(), error = function(e) NULL)
+      put("consensus.txt", writeLines(consensus_to_text(rv$consensus, topic, plan = cp), fp("consensus.txt")))
+      put("consensus.pdf", {
+        ok <- if (isTRUE(rv$running)) FALSE else
+          tryCatch({ html_to_pdf(consensus_html(topic, rv$consensus, meta = meta, plan = cp), fp("consensus.pdf")); TRUE },
+                   error = function(e) FALSE)
+        if (!ok) text_to_pdf(consensus_to_text(rv$consensus, topic, plan = cp), fp("consensus.pdf"),
+                             title = paste("Consensus:", topic), subtitle = meta)
+      })
+    }
+    # -- full reloadable session --
+    put("debate.rds", saveRDS(session_state(), fp("debate.rds")))
+
+    rounds <- if (length(rv$history)) max(vapply(rv$history, function(h) as.integer(h$round), integer(1))) else 0L
+    cost   <- tryCatch(sum(usage_to_df(rv$usage_log, cfg$pricing)$cost, na.rm = TRUE), error = function(e) NA_real_)
+    now    <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+
+    write_report_manifest(folder, list(
+      topic = topic, saved_at = now, coordinator = input$coordinator %||% "",
+      mode = input$mode, moderator = input$moderator, agents = length(rv$agents),
+      rounds = rounds, estimated_cost_usd = if (is.na(cost)) NULL else round(cost, 6),
+      files = as.list(files)))
+    tryCatch(append_report_index(REPORTS_DIR, data.frame(
+      saved_at = now, topic = topic, mode = input$mode %||% "", moderator = input$moderator %||% "",
+      agents = length(rv$agents), rounds = rounds,
+      est_cost_usd = if (is.na(cost)) NA_real_ else round(cost, 6),
+      folder = basename(folder), n_files = length(files), stringsAsFactors = FALSE)),
+      error = function(e) log_event("WARN", paste("index.csv update skipped:", conditionMessage(e))))
+
+    log_event("INFO", paste0("Saved report bundle (", length(files), " files) to ", folder, "."))
+    showNotification(paste0("Saved ", length(files), " reports to reports/", basename(folder)),
+                     type = "message", duration = 8)
+  }
+  observeEvent(input$btn_save_reports, do_save_reports())
+
   do_save_session <- function(name) {
     # Blank name -> the default scheme <debate title>_<date-time>, so one click
     # saves under a meaningful name. Overwrite semantics: an EXPLICIT name may
@@ -2475,31 +2603,7 @@ server <- function(input, output, session) {
         name <- paste0(name, "_", i)
       }
     }
-    # Capture per-provider model overrides (may be NULL if Debate Setup unseen).
-    models <- setNames(lapply(provider_ids(cfg), function(id) input[[paste0("model_", id)]]),
-                       provider_ids(cfg))
-    state <- list(
-      # ---- results ----
-      topic = input$topic, problem_details = input$problem_details,
-      critical_rules = input$critical_rules,
-      apply_rules_debate = input$apply_rules_debate, apply_rules_consensus = input$apply_rules_consensus,
-      plan = rv$plan, agents = rv$agents, history = rv$history,
-      kg = rv$kg, analytics = rv$analytics, consensus = rv$consensus,
-      usage_log = rv$usage_log, formatted_output = rv$formatted_output,
-      # ---- full configuration ----
-      config = list(
-        active_providers = input$active_providers, meta_provider = input$meta_provider,
-        mode = input$mode, moderator = input$moderator, objective = input$objective,
-        n_rounds = input$n_rounds, max_tokens = input$max_tokens, temperature = input$temperature,
-        reasoning_effort_idx = input$reasoning_effort_idx, language = input$language,
-        auto_stop = input$auto_stop, use_cache = input$use_cache,
-        active_dimensions = input$active_dimensions, models = models,
-        coordinator = input$coordinator, include_plan_in_consensus = input$include_plan_in_consensus,
-        include_moderator_in_transcript = input$include_moderator_in_transcript,
-        narrative_type = input$narrative_type, narrative_type_custom = input$narrative_type_custom,
-        panel_design = input$panel_design, debate_title = input$debate_title
-      )
-    )
+    state <- session_state()
     save_session(state, name)
     sessions_refresh(sessions_refresh() + 1)
     showNotification(paste0("Saved debate '", name, "'."), type = "message")
@@ -2507,7 +2611,7 @@ server <- function(input, output, session) {
   observeEvent(input$btn_save_session,  do_save_session(input$session_name))
   observeEvent(input$btn_save_session2, do_save_session(input$session_name2))
 
-  observeEvent(input$btn_load_session, {
+  do_load_session <- function() {
     if (isTRUE(rv$running)) {
       showNotification("Stop the running deliberation before loading a saved debate.", type = "warning"); return()
     }
@@ -2568,8 +2672,16 @@ server <- function(input, output, session) {
     }
     updateTextInput(session, "session_name", value = m$name[sel])
     updateTextInput(session, "session_name2", value = m$name[sel])  # keep both save fields in sync
-    showNotification(paste0("Loaded debate '", m$name[sel], "' (config + results)."), type = "message")
-  })
+    showNotification(paste0("Loaded '", m$name[sel], "' as the current debate (topic + panel)."), type = "message")
+  }
+  observeEvent(input$btn_load_session, do_load_session())
+  # Selecting a saved debate in the table loads it immediately as the current
+  # (default) debate -- topic, panel and config -- with no separate click.
+  # Guarded so a de-selection or a selection made mid-run does nothing (the
+  # button still gives an explicit warning in the running case).
+  observeEvent(input$sessions_table_rows_selected, {
+    if (length(input$sessions_table_rows_selected) == 1 && !isTRUE(rv$running)) do_load_session()
+  }, ignoreNULL = TRUE)
 
   observeEvent(input$btn_delete_session, {
     m <- sessions_meta(); sel <- input$sessions_table_rows_selected

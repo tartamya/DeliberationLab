@@ -4,6 +4,9 @@ config/secrets.R
 # Saved deliberation sessions (may be large / private)
 sessions/
 
+# Saved report bundles + index (generated output artifacts)
+reports/
+
 # R artifacts
 .Rproj.user/
 .Rhistory

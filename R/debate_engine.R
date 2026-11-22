@@ -86,6 +86,10 @@ run_turn <- function(cfg, agent, phase_instruction, topic, history, kg,
        confidence = extract_confidence(text),
        # token usage carried through for cost accounting (see app.R usage log).
        usage = res$usage, model = res$model %||% agent$model,
+       # Parameters the provider refused and llm_chat had to drop. Carried so
+       # the run log can say so: a silently ignored temperature makes a run
+       # look reproducible when it is not.
+       dropped = res$dropped %||% NULL,
        cached = isTRUE(res$cached))
 }
 
@@ -216,7 +220,8 @@ debate_quality <- function(history, kg) {
   nn <- (if (!is.null(kg)) nrow(kg$nodes) else 0) %||% 0
   ne <- (if (!is.null(kg)) nrow(kg$edges) else 0) %||% 0
   if (length(mods) == 0 || nn == 0 || !is.data.frame(kg$nodes))
-    return(list(enough_data = FALSE, n_rounds = length(mods)))
+    return(list(enough_data = FALSE, n_rounds = length(mods),
+                citations = citation_summary(history)))
 
   ntype <- function(t) sum(kg$nodes$type == t)
   n_claim <- ntype("Claim"); n_evi <- ntype("Evidence"); n_counter <- ntype("Counterargument")
@@ -258,6 +263,77 @@ debate_quality <- function(history, kg) {
     list(name = "Argument connectivity",band = band(s_con),  raw = sprintf("%.1f edges/node", ne / max(1, nn))),
     list(name = "Reasoning integrity",  band = band(s_rea),  raw = sprintf("%d fallacies flagged", n_fallacy)),
     list(name = "Idea productivity",    band = band(s_prod), raw = sprintf("%d new + %d refined", n_newhyp, e_dev)))
+  # Citation integrity rides along rather than folding into the index: a run
+  # can score High on evidence grounding while its citations are unsourced,
+  # and averaging the two would hide exactly that. Reported side by side so
+  # the reader sees both. Score and bands are unchanged.
   list(enough_data = TRUE, index = index, label = label, dims = dims,
+       citations = citation_summary(history),
        convergence = conv, n_rounds = length(mods))
+}
+
+# ---- Citation integrity -----------------------------------------------------
+# A purely textual, zero-cost check run after every turn. It exists because the
+# 2026-08-29 run produced the classic fabrication signature: the Source Auditor
+# cited [1]..[21] in round 3 with NO Sources block and NO URLs -- citation
+# formatting outliving the retrieval that justified it -- while a Proposer on a
+# provider that cannot browse emitted 15 numbered citations of its own.
+# Formatted citations read as more authoritative than plain assertions, so an
+# unsourced marker is worse than no marker at all.
+#
+# The text is NEVER modified. An agent's words are the record; this only labels
+# them, so a flagged turn stays auditable rather than being silently rewritten.
+# `Sources:` + a numbered list is the same shape prompt_templates.R already
+# treats as cited evidence -- kept deliberately consistent with that convention.
+#
+# Returns: markers/urls/has_block counts, web_capable, and one status:
+#   "clean"             no citation apparatus at all
+#   "sourced"           markers backed by a Sources block and URLs -- as intended
+#   "unsourced_markers" markers with nothing behind them -- fabrication risk
+#   "uncapable_sources" URLs/Sources from a provider that cannot retrieve
+.count_matches <- function(txt, pattern, perl = FALSE) {
+  if (!nzchar(txt)) return(0L)
+  m <- gregexpr(pattern, txt, perl = perl)[[1]]
+  if (length(m) == 1 && m[1] == -1) 0L else length(m)
+}
+
+citation_integrity <- function(text, web_capable = FALSE) {
+  txt <- as.character(text %||% "")
+  if (length(txt) != 1 || is.na(txt)) txt <- ""
+  markers   <- .count_matches(txt, "\\[[0-9]{1,3}\\]")
+  urls      <- .count_matches(txt, "https?://")
+  has_block <- grepl("Sources:", txt, fixed = TRUE)
+  cap       <- isTRUE(web_capable)
+  status <-
+    if (!cap && (urls > 0 || has_block))            "uncapable_sources"
+    else if (markers > 0 && !has_block && urls == 0) "unsourced_markers"
+    else if (markers > 0 || urls > 0)                "sourced"
+    else                                             "clean"
+  list(markers = markers, urls = urls, has_block = has_block,
+       web_capable = cap, status = status, suspect = status %in%
+         c("unsourced_markers", "uncapable_sources"))
+}
+
+# One-line human-readable warning for the run log, or "" when nothing is wrong.
+citation_warning <- function(ci, agent, round_number, provider) {
+  if (is.null(ci) || !isTRUE(ci$suspect)) return("")
+  switch(ci$status,
+    unsourced_markers = paste0(
+      "Round ", round_number, " ", agent, " (", provider, "): ", ci$markers,
+      " citation marker(s) with no Sources block and no URLs -- unverifiable, treat as unsourced."),
+    uncapable_sources = paste0(
+      "Round ", round_number, " ", agent, " (", provider, "): produced ", ci$urls,
+      " URL(s)/Sources although '", provider, "' cannot retrieve web content -- likely fabricated."),
+    "")
+}
+
+# Roll the per-turn results up for a report or scorecard.
+citation_summary <- function(history) {
+  h <- Filter(function(x) !is.null(x$citation), history %||% list())
+  if (length(h) == 0) return(NULL)
+  st <- vapply(h, function(x) as.character(x$citation$status %||% "clean"), character(1))
+  list(turns = length(h), sourced = sum(st == "sourced"),
+       unsourced_markers = sum(st == "unsourced_markers"),
+       uncapable_sources = sum(st == "uncapable_sources"),
+       suspect = sum(st %in% c("unsourced_markers", "uncapable_sources")))
 }

@@ -181,6 +181,13 @@ llm_count_tokens <- function(text) {
   use_completion_field <- grepl("openai.com", prov$endpoint, fixed = TRUE)
   body <- list(model = model, messages = messages, temperature = temperature)
   if (use_completion_field) body$max_completion_tokens <- max_tokens else body$max_tokens <- max_tokens
+  # Greedy sampling (temperature 0) is rejected by Mistral with
+  #   400 "top_p must be 1 when using greedy sampling"
+  # unless top_p is stated explicitly. top_p = 1 IS the universal default, so
+  # saying it out loud changes nothing for the others -- verified 2026-11-20
+  # against openai, grok, sarvam, celeris, mistral, deepseek and perplexity.
+  if (is.numeric(temperature) && length(temperature) == 1 &&
+      !is.na(temperature) && temperature == 0) body$top_p <- 1
   body <- .with_live_search(body, prov)
 
   legal_levels <- unlist(prov$reasoning_effort_levels %||% list())
@@ -198,16 +205,20 @@ llm_count_tokens <- function(text) {
   tmo <- suppressWarnings(as.numeric(prov$timeout_sec %||% 90)); if (is.na(tmo)) tmo <- 90
   post <- function(b) safe_api_post(prov$endpoint, headers, b, timeout_sec = tmo)
   res <- post(body)
+  dropped <- character(0)   # what the fallbacks below had to remove
 
   # Error-driven parameter fallbacks (learned the hard way in the CIRL app).
   if (!isTRUE(res$ok) && grepl("max_tokens", res$error %||% "", fixed = TRUE)) {
     body$max_completion_tokens <- NULL; body$max_tokens <- max_tokens; res <- post(body)
+    if (isTRUE(res$ok)) dropped <- c(dropped, "max_completion_tokens->max_tokens")
   }
   if (!isTRUE(res$ok) && grepl("temperature", res$error %||% "", fixed = TRUE)) {
-    body$temperature <- NULL; res <- post(body)  # reasoning models accept only default temp
+    body$temperature <- NULL; body$top_p <- NULL; res <- post(body)  # reasoning models accept only default temp
+    if (isTRUE(res$ok)) dropped <- c(dropped, paste0("temperature(", temperature, ") ignored by this model"))
   }
   if (!isTRUE(res$ok) && grepl("reasoning_effort", res$error %||% "", fixed = TRUE)) {
     body$reasoning_effort <- NULL; res <- post(body)
+    if (isTRUE(res$ok)) dropped <- c(dropped, paste0("reasoning_effort(", reasoning_effort, ")"))
   }
   # Live Search is ADDITIVE: if the request failed for ANY reason while it was
   # attached, drop it and retry once. Matching the error text was too narrow --
@@ -217,6 +228,7 @@ llm_count_tokens <- function(text) {
   # otherwise have worked.
   if (!isTRUE(res$ok) && !is.null(body$search_parameters)) {
     body$search_parameters <- NULL; res <- post(body)
+    if (isTRUE(res$ok)) dropped <- c(dropped, "live_search")
   }
   if (!isTRUE(res$ok)) return(list(ok = FALSE, text = NULL, error = res$error))
 
@@ -258,7 +270,8 @@ llm_count_tokens <- function(text) {
   usage <- tryCatch(list(prompt_tokens = res$raw$usage$prompt_tokens %||% NA,
                          completion_tokens = res$raw$usage$completion_tokens %||% NA),
                     error = function(e) NULL)
-  list(ok = TRUE, text = txt, error = NULL, raw = res$raw, usage = usage)
+  list(ok = TRUE, text = txt, error = NULL, raw = res$raw, usage = usage,
+       dropped = if (length(dropped)) dropped else NULL)
 }
 
 # Format a web-search provider's citations into a plain "Sources:" block, or ""
@@ -471,4 +484,22 @@ llm_cost <- function(pricing, model, prompt_tokens, completion_tokens) {
   ct <- if (is.null(completion_tokens) || is.na(completion_tokens)) 0 else as.numeric(completion_tokens)
   req_fee <- suppressWarnings(as.numeric(rate$request %||% 0)); if (is.na(req_fee)) req_fee <- 0
   (pt * (rate$input %||% 0) + ct * (rate$output %||% 0)) / 1e6 + req_fee
+}
+
+# ---- Retrieval capability ---------------------------------------------------
+# Whether a provider can actually fetch web content AS CURRENTLY CONFIGURED.
+# Driven entirely by providers.json (`web_search`), so adding a retrieval-capable
+# provider stays a config-only change, consistent with the rest of the registry:
+#   "native"   -- retrieval is always on (Perplexity's sonar family)
+#   "optional" -- retrieval exists but is opt-in; honours live_search.enabled
+#   "none"/absent -- cannot retrieve
+# Used to tell an honest citation from a fabricated one: a model that cannot
+# retrieve has no legitimate way to produce a URL or a Sources block.
+provider_web_capable <- function(cfg, provider_id) {
+  p <- provider_by_id(cfg, provider_id)
+  if (is.null(p)) return(FALSE)
+  ws <- tolower(trimws(as.character(p$web_search %||% "none")))
+  if (identical(ws, "native")) return(TRUE)
+  if (identical(ws, "optional")) return(isTRUE(p$live_search$enabled))
+  FALSE
 }
